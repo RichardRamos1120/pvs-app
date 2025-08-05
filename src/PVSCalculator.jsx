@@ -261,16 +261,16 @@ const PVSCalculator = () => {
 
       try {
         const value = calculateFIRISValue(property);
-        properties.push({
+        const newProperty = {
           ...property,
           value,
           id: Date.now() + i
-        });
+        };
+        properties.push(newProperty);
       } catch (error) {
         errors.push(`Row ${i + 1}: Error calculating FIRIS value - ${error.message}`);
       }
     }
-
     return { properties, errors };
   };
 
