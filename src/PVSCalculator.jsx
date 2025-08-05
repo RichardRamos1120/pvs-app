@@ -29,6 +29,8 @@ const PVSCalculator = () => {
     localMultiplier: '1.0'
   });
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [bulkUploadResults, setBulkUploadResults] = useState(null);
   
   // Constants
   const VSL = 7000000; // Value of Statistical Life: $7 million
@@ -165,6 +167,167 @@ const PVSCalculator = () => {
     newProperties.splice(index, 1);
     setProperties(newProperties);
   };
+
+  // Parse CSV content with proper quoted field handling
+  const parseCSV = (csvText) => {
+    const lines = csvText.trim().split('\n');
+    if (lines.length < 2) return { error: 'CSV must have at least a header row and one data row' };
+
+    // Parse CSV line with proper handling of quoted fields
+    const parseCsvLine = (line) => {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
+      
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          result.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      result.push(current.trim());
+      return result;
+    };
+
+    const headers = parseCsvLine(lines[0]);
+    const requiredFields = ['address', 'squareFootage', 'yearBuilt'];
+    
+    const missingRequired = requiredFields.filter(field => !headers.includes(field));
+    if (missingRequired.length > 0) {
+      return { error: `Missing required columns: ${missingRequired.join(', ')}` };
+    }
+
+    const properties = [];
+    const errors = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const values = parseCsvLine(lines[i]);
+      
+      if (values.length !== headers.length) {
+        errors.push(`Row ${i + 1}: Column count mismatch (expected ${headers.length}, got ${values.length})`);
+        continue;
+      }
+
+      const propertyData = {};
+      headers.forEach((header, index) => {
+        propertyData[header] = values[index];
+      });
+
+      // Set defaults for missing optional fields
+      const property = {
+        address: propertyData.address || '',
+        incidentId: propertyData.incidentId || '',
+        propertyType: propertyData.propertyType || 'residential',
+        structureType: propertyData.structureType || 'single_family',
+        yearBuilt: propertyData.yearBuilt || '',
+        squareFootage: propertyData.squareFootage || '',
+        stories: propertyData.stories || '1',
+        constructionType: propertyData.constructionType || 'wood_frame',
+        roofType: propertyData.roofType || 'composition',
+        exteriorWalls: propertyData.exteriorWalls || 'wood_siding',
+        condition: propertyData.condition || 'good',
+        localMultiplier: propertyData.localMultiplier || '1.0'
+      };
+
+      // Validate required fields
+      if (!property.address || !property.squareFootage || !property.yearBuilt) {
+        errors.push(`Row ${i + 1}: Missing required data (address, squareFootage, or yearBuilt)`);
+        continue;
+      }
+
+      // Validate numeric fields
+      if (isNaN(parseInt(property.squareFootage)) || parseInt(property.squareFootage) <= 0) {
+        errors.push(`Row ${i + 1}: Invalid square footage`);
+        continue;
+      }
+
+      const year = parseInt(property.yearBuilt);
+      if (isNaN(year) || year < 1800 || year > 2025) {
+        errors.push(`Row ${i + 1}: Invalid year built (must be 1800-2025)`);
+        continue;
+      }
+
+      const multiplier = parseFloat(property.localMultiplier);
+      if (isNaN(multiplier) || multiplier < 0.1 || multiplier > 3.0) {
+        errors.push(`Row ${i + 1}: Invalid local multiplier (must be 0.1-3.0)`);
+        continue;
+      }
+
+      try {
+        const value = calculateFIRISValue(property);
+        properties.push({
+          ...property,
+          value,
+          id: Date.now() + i
+        });
+      } catch (error) {
+        errors.push(`Row ${i + 1}: Error calculating FIRIS value - ${error.message}`);
+      }
+    }
+
+    return { properties, errors };
+  };
+
+  // Handle bulk upload
+  const handleBulkUpload = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      alert('Please select a CSV file');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const csvText = e.target.result;
+      const result = parseCSV(csvText);
+      
+      if (result.error) {
+        alert(`CSV parsing error: ${result.error}`);
+        return;
+      }
+
+      setBulkUploadResults(result);
+    };
+    reader.readAsText(file);
+  };
+
+  // Apply bulk upload results
+  const applyBulkUpload = () => {
+    if (!bulkUploadResults || !bulkUploadResults.properties) return;
+    
+    setProperties([...properties, ...bulkUploadResults.properties]);
+    setBulkUploadResults(null);
+    setShowBulkUpload(false);
+    
+    // Reset file input
+    const fileInput = document.getElementById('bulk-upload-input');
+    if (fileInput) fileInput.value = '';
+  };
+
+  // Download CSV template
+  const downloadCSVTemplate = () => {
+    const csvContent = `address,incidentId,propertyType,structureType,yearBuilt,squareFootage,stories,constructionType,condition,localMultiplier
+"123 Main St, Anytown USA",INC-2024-001,residential,single_family,1995,2400,2,wood_frame,good,1.0
+"456 Oak Ave, Anytown USA",INC-2024-002,commercial,office,2010,5000,3,steel_frame,excellent,1.2`;
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'firis_bulk_upload_template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  };
   
   
   // Calculate PVS
@@ -288,14 +451,28 @@ const PVSCalculator = () => {
           <h2 className="text-xl font-bold mb-5">Step 2: Properties Saved (FIRIS Method)</h2>
           
           <div className="mb-5">
-            <button
-              onClick={() => setShowAddForm(!showAddForm)}
-              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-            >
-              {showAddForm ? 'Cancel' : '+ Add Property'}
-            </button>
-            <p className="text-sm text-gray-500 mt-2">
-              Enter property details manually to calculate replacement cost using FIRIS standards
+            <div className="flex gap-3 mb-3">
+              <button
+                onClick={() => setShowAddForm(!showAddForm)}
+                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              >
+                {showAddForm ? 'Cancel' : '+ Add Property'}
+              </button>
+              <button
+                onClick={() => setShowBulkUpload(!showBulkUpload)}
+                className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+              >
+                {showBulkUpload ? 'Cancel' : '📄 Bulk Upload CSV'}
+              </button>
+              <button
+                onClick={downloadCSVTemplate}
+                className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
+              >
+                ⬇ Download CSV Template
+              </button>
+            </div>
+            <p className="text-sm text-gray-500">
+              Add properties manually or upload multiple properties via CSV using FIRIS standards
             </p>
           </div>
           
@@ -521,6 +698,98 @@ const PVSCalculator = () => {
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+          
+          {showBulkUpload && (
+            <div className="border border-gray-200 rounded-lg p-5 mb-5 bg-green-50">
+              <h3 className="text-lg font-bold mb-5">Bulk Upload Properties - CSV Import</h3>
+              
+              <div className="mb-4">
+                <label className="block mb-2 font-bold">
+                  Select CSV File
+                </label>
+                <input
+                  id="bulk-upload-input"
+                  type="file"
+                  accept=".csv"
+                  onChange={handleBulkUpload}
+                  className="w-full p-2 border border-gray-300 rounded"
+                />
+                <p className="text-sm text-gray-600 mt-2">
+                  Required columns: address, squareFootage, yearBuilt. 
+                  Optional: incidentId, propertyType, structureType, stories, constructionType, condition, localMultiplier
+                </p>
+              </div>
+              
+              {bulkUploadResults && (
+                <div className="mt-4 p-4 border border-gray-300 rounded bg-white">
+                  <h4 className="font-bold mb-3">Upload Preview</h4>
+                  
+                  {bulkUploadResults.errors && bulkUploadResults.errors.length > 0 && (
+                    <div className="mb-4 p-3 bg-red-100 border border-red-300 rounded">
+                      <h5 className="font-bold text-red-700 mb-2">Errors Found:</h5>
+                      <ul className="text-sm text-red-600">
+                        {bulkUploadResults.errors.map((error, index) => (
+                          <li key={index}>• {error}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {bulkUploadResults.properties && bulkUploadResults.properties.length > 0 && (
+                    <div className="mb-4">
+                      <h5 className="font-bold text-green-700 mb-2">
+                        {bulkUploadResults.properties.length} Properties Ready to Import:
+                      </h5>
+                      <div className="max-h-60 overflow-y-auto">
+                        <table className="w-full text-sm border-collapse">
+                          <thead>
+                            <tr className="bg-gray-100">
+                              <th className="p-2 text-left border">Address</th>
+                              <th className="p-2 text-center border">Type</th>
+                              <th className="p-2 text-center border">Sq Ft</th>
+                              <th className="p-2 text-center border">Year</th>
+                              <th className="p-2 text-right border">FIRIS Value</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {bulkUploadResults.properties.map((property, index) => (
+                              <tr key={index} className="border-b">
+                                <td className="p-2 border">{property.address}</td>
+                                <td className="p-2 text-center border">{property.propertyType}/{property.structureType}</td>
+                                <td className="p-2 text-center border">{parseInt(property.squareFootage).toLocaleString()}</td>
+                                <td className="p-2 text-center border">{property.yearBuilt}</td>
+                                <td className="p-2 text-right border font-bold">{formatCurrency(property.value)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="mt-3 p-2 bg-blue-100 rounded">
+                        <strong>Total Value: {formatCurrency(bulkUploadResults.properties.reduce((sum, p) => sum + p.value, 0))}</strong>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setBulkUploadResults(null)}
+                      className="bg-white border border-gray-300 px-4 py-2 rounded hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                    {bulkUploadResults.properties && bulkUploadResults.properties.length > 0 && (
+                      <button
+                        onClick={applyBulkUpload}
+                        className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                      >
+                        Import {bulkUploadResults.properties.length} Properties
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
           

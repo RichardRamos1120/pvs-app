@@ -1,0 +1,11 @@
+address,incidentId,propertyType,structureType,yearBuilt,squareFootage,stories,constructionType,condition,localMultiplier
+"123 Main St, Anytown USA",INC-2024-001,residential,single_family,1995,2400,2,wood_frame,good,1.0
+"456 Oak Ave, Anytown USA",INC-2024-002,commercial,office,2010,5000,3,steel_frame,excellent,1.2
+"789 Pine Rd, Anytown USA",INC-2024-003,residential,townhouse,2005,1800,2,wood_frame,good,1.1
+"321 Elm Dr, Anytown USA",INC-2024-004,industrial,manufacturing,1985,12000,1,steel_frame,fair,0.9
+"654 Maple Ln, Anytown USA",INC-2024-005,residential,condo,2015,1200,1,concrete,excellent,1.3
+"987 Cedar Ct, Anytown USA",INC-2024-006,commercial,retail,2000,3500,1,masonry,good,1.0
+"147 Birch Way, Anytown USA",INC-2024-007,residential,duplex,1990,2800,2,wood_frame,fair,0.8
+"258 Spruce St, Anytown USA",INC-2024-008,commercial,warehouse,1975,8000,1,steel_frame,poor,0.7
+"369 Willow Ave, Anytown USA",INC-2024-009,residential,manufactured,2018,1600,1,wood_frame,good,0.9
+"741 Poplar Blvd, Anytown USA",INC-2024-010,other,garage,2012,800,1,wood_frame,excellent,1.0
