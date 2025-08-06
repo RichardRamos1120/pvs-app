@@ -1,0 +1,1403 @@
+
+General Introduction
+
+The Regrid API offers a flexible and dynamic set of features for querying Regrid Parcels by numerous fields, operators, geometries and allows for simple composition of API calls, from the output of one endpoint, to the input of another.
+
+Our OpenAPI specification is available for download in the API section of your account, and in usable form in our API Sandbox. The following documentation expands upon the endpoint descriptions and field name and operator use in the OpenAPI spec.
+Endpoints
+
+All API requests are to the https://app.regrid.com/ domain. You can review our full description of endpoints at Regrid API Endpoints.
+Responses
+
+All API requests return a GeoJSON Feature Collection object containing an array of GeoJSON Features. Each Feature contains one Parcel Record with all of its attributes in the properties object and its GeoJSON geometry in the geometry object. A Feature Collection with an empty features array means no Parcel Records could be matched based on the search criteria.
+API Billing
+
+Parcel API requests are tracked for billing by how many Parcel Records are returned in a response.
+
+You will get multiple Parcel Records returned per Parcel API request depending on how you search for parcels via our Parcel API. Searches by specific fields like address, parcel number, owner name, polygon, and point with or without a radius parameter are all examples of Parcel API requests that return multiple Parcel Records in each response.
+
+The limit parameter will limit the number of Parcel Records returned by a Parcel API request. The default limit is 20 Parcel Records, but can be set to any number from 1 to 1000. The limit parameter is available for any Parcel API request that can return more than one Parcel Record.
+
+The Parcel API Account Usage endpoint also provides real time usage information that can be used for monitoring Parcel Records remaining in your monthly or annual plan. There is no cost to using this endpoint. You are also able to use this endpoint within your workflow to track usage internally.
+Authentication
+
+All API requests must include a token parameter. You can find and generate new tokens in the API section of your regrid.com Account Profile.
+
+Learn more about API Token Management.
+API request rates
+
+API request rates are defined in terms of the maximum number of requests allowed per minute. Exceeding the API request rate will result in a 429 error for rate limiting/throttling. The API server will reject any additional requests until the rate limit resets. It is important to adhere to the rate limits to avoid disruption in service and ensure compliance with the Regrid Terms of Use.
+
+Rates are limited to 10 simultaneous API requests or approximately 200 API requests per minute. Additional capacity is available; please contact our sales team at parcels@regrid.com for details.
+In this section
+
+    Endpoints
+    Responses
+    API Billing
+    Authentication
+    AP
+
+
+
+
+Regrid API Endpoints
+
+Our API has several unique endpoints, each serving a purpose of querying against our vast parcel dataset to look up parcel records that best serve your location intelligence use cases.
+
+Finding the parcel records you need can be achieved in many ways. In this article we describe each endpoint in detail. A special emphasis is on input parameters, input value types and output formats.
+
+Remember, if you want to try our API now, you can always head over to the API Sandbox.
+Parcels by Country
+
+The Regrid International API is quite similar to our original US Parcel API. Learn about the differences when working with other countries.
+Parcels
+
+There are many ways to find the parcel record or records you are interested in.
+
+Each JSON endpoint begins with https://app.regrid.com/api/v2/<Country Code> and continues with…
+Point
+
+Latitude and Longitude a.k.a. Reverse Geocoding
+
+api/v2/parcels/point
+
+This endpoint delivers parcel records using latitude and longitude points. You can add a radius zone to the point or points and limit the amount of parcel records returned in the response. The parameter geojson takes priority if lat and lon are used in the same request.
+
+This endpoint has all the same parameters as api/v2/parcels/query, but limited to no fields param and only Point or MultiPoint GeoJSON types.
+
+Tip:
+When using an exact point, sometimes it will fall outside a parcel boundary. If a parcel is very close to a point, using the radius parameter can help by creating a circular polygon around each point. Using a small radius on points is also helpful when some tools return points on parcel records that are literally in a street next to the parcel.
+
+HTTP API request general form
+
+GET /api/v2/parcels/point?lat=<y>&lon=<x>&token=<token>
+
+Query parameters
+
+    token: Your Regrid authorization token.
+    lat: Latitude point
+    lon: Longitude point
+    radius: (Default: 0, Maximum: 32000) Radius in meters for which all Parcel records will be returned if they are within the radius zone from latitude and longitude point.
+
+    geojson: Geographic data structure for Point and MultiPoint only. This parameter takes priority if lat/lon are used in the same request.
+    offset_id: ID from a previous query exceeding the limit, returns the next set of results up to limit.
+    limit: (optional) Default 20. Maximum number of Parcel Records to return. Max is 1000.
+    return_count: Set to true to enable count of parcels in query.
+    return_geometry: Default true. Features are returned without geometry values. This reduces the payload size significantly if only field data is required.
+    return_custom: Default false: A true value allows county-specific fields to be passed through beyond standard schema fields only.
+    return_field_labels: Default false: A true value shows the naming convention for each standardized schema field.
+    return_stacked: Default true: A false value returns the first parcel if geometries are identical.
+    return_matched_buildings: Set to false to disable building footprint data in the response. Default is true when supported by the account.
+    return_matched_addresses: Set to false to matched addresses data in the response. Default is true when supported by the account.
+    return_enhanced_ownership: Set to false to disable enhanced ownership data in the response. Default is true when supported by the account.
+    return_zoning: Set to false to disable zoning data in the response. Default is true when supported by the account.
+    return_custom_id: Default false. Set to true when input GeoJSON features include a 'custom_id' field in the 'properties' object. This flag enables the resulting parcels to include the user-set custom ID for matching parcel(s).
+    return_parcels: Default true. A false value will not return parcel records. Used to return additional add-on datasets when parcel information is not needed.
+
+Response fields
+
+    parcels: A GeoJSON Features Collection of Features, each containing the matched Parcel Records. An empty Feature Collection with no error means no Parcel Records could be matched.
+
+Example US API request
+
+GET https://app.regrid.com/api/v2/parcels/point?lat=42.36511&lon=-83.073107&radius=250&token=<token>
+
+Example US results:
+
+
+Example CA API request
+
+GET https://app.regrid.com/api/v2/parcels/point?lat=49.819318661797126&lon=-97.13621073038664&radius=250&token=<token>
+
+Example CA results:
+
+Address
+
+api/v2/parcels/address
+
+This endpoint delivers parcel records using an address. Within the United States and Puerto Rico, there can be multiple locations with similar addresses, and therefore we suggest specifying the location within a State, County and/or City by using the path parameter.
+
+For international requests, use the path parameter for the country's equivalent juristictions as admin1, admin2 and/or admin3.
+
+HTTP API request general form
+
+GET /api/v2/parcels/address?query=<address>&path=<path>&token=<token>
+
+Query parameters
+
+    token: Your Regrid authorization token.
+
+    query: A street address or partial address, starting at the beginning
+    path: Represents the path for the '/us/state_id/county_slug' as defined by the Regrid Standard Schema. This restricts the search to this area.
+    limit: (optional) Default 20. Maximum number of Parcel Records to return. Max is 1000.
+    return_custom: Default false: A true value allows county-specific fields to be passed through beyond standard schema fields only.
+    return_field_labels: Default false: A true value shows the naming convention for each standardized schema field.
+    return_stacked: Default true: A false value returns the first parcel if geometries are identical.
+    return_matched_buildings: Set to false to disable building footprint data in the response. Default is true when supported by the account.
+    return_matched_addresses: Set to false to matched addresses data in the response. Default is true when supported by the account.
+    return_enhanced_ownership: Set to false to disable enhanced ownership data in the response. Default is true when supported by the account.
+    return_zoning: Set to false to disable zoning data in the response. Default is true when supported by the account.
+    return_parcels: Default true. A false value will not return parcel records. Used to return additional add-on datasets when parcel information is not needed.
+
+Response fields
+
+    parcels: A GeoJSON Features Collection of Features, sorted by descending relevance rank, containing the matched Parcel Records. An empty results set with no error means no Parcel Records could be matched.
+
+Example request
+
+GET https://app.regrid.com/api/v2/parcels/address?query=440%20burroughs&path=/us/mi/wayne/detroit&limit=15&token=<token>
+
+Example results:
+
+Assessor Parcel Number
+
+api/v2/parcels/apn
+
+This endpoint delivers parcel records using the Assessor Parcel Number (APN) which is assigned to each parcel by the respective county. Multiple parcel records can be returned depending on the APN, therefore specify the location within a State, County and/or City (for international requests admin1, admin2 and/or admin3) by using the parameter path.
+
+An APN is also known as a Parcel Identification Number (PIN).
+
+HTTP API request general form
+
+GET /api/v2/parcels/apn?parcelnumb=<pin>&token=<token>
+
+Query parameters
+
+    token: Your Regrid authorization token.
+    parcelnumb: (required) The assessor's parcel number to look up. Non-alphanumeric characters will be removed when searching. Example: '26447580030140000'
+    path: Represents the path for the '/us/state_id/county_slug' as defined by the Regrid Standard Schema. This restricts the search to this area.
+    limit: (optional) Default 20. Maximum number of Parcel Records to return. Max is 1000.
+    return_custom: Default false: A true value allows county-specific fields to be passed through beyond standard schema fields only.
+    return_field_labels: Default false: A true value shows the naming convention for each standardized schema field.
+    return_stacked: Default true: A false value returns the first parcel if geometries are identical.
+    return_matched_buildings: Set to false to disable building footprint data in the response. Default is true when supported by the account.
+    return_matched_addresses: Set to false to matched addresses data in the response. Default is true when supported by the account.
+    return_enhanced_ownership: Set to false to disable enhanced ownership data in the response. Default is true when supported by the account.
+    return_zoning: Set to false to disable zoning data in the response. Default is true when supported by the account.
+    return_parcels: Default true. A false value will not return parcel records. Used to return additional add-on datasets when parcel information is not needed.
+
+Response fields
+
+    parcels: A GeoJSON Features Collection of Features, sorted by descending relevance rank, containing the matched Parcel Records. An empty results set with no error means no Parcel Records could be matched.
+
+Example request
+
+GET https://app.regrid.com/api/v2/parcels/apn?parcelnumb=02001069-71&path=/us/mi/wayne/detroit&&limit=15&token=<token>
+
+Example results:
+
+Owner Name
+
+api/v2/parcels/owner
+
+This endpoint delivers parcel records using the owner name, either an individual or entity. Multiple parcel records can be returned, so limit the response by using parameter limit and specify the location within a State, County and/or City using the parameter path.
+
+These matches are based on the start of the name string. For example, if you are looking for a parcel owned by "Jones, Festus", you can search by "jon", "jone", "jones", etc. Searching for "fest", "festus", etc. will not match the parcel.
+
+NOTE: This endpoint is not available for Canada.
+
+HTTP API request general form
+
+GET /api/v2/parcels/owner?owner=<name>&path=<path>&token=<token>
+
+Query parameters
+
+    token: Your Regrid authorization token.
+    owner`: The owner name in Last, First format. Matches by prefix, you can pass just a last name to get any name beginning with that string. (Case insensitive, minimum 4 characters, required)
+    path: Represents the path for the '/us/state_id/county_slug' as defined by the Regrid Standard Schema. This restricts the search to this area.
+    limit: (optional) Default 20. Maximum number of Parcel Records to return. Max is 1000.
+    return_custom: Default false: A true value allows county-specific fields to be passed through beyond standard schema fields only.
+    return_field_labels: Default false: A true value shows the naming convention for each standardized schema field.
+    return_stacked: Default true: A false value returns the first parcel if geometries are identical.
+    return_matched_buildings: Set to false to disable building footprint data in the response. Default is true when supported by the account.
+    return_matched_addresses: Set to false to matched addresses data in the response. Default is true when supported by the account.
+    return_enhanced_ownership: Set to false to disable enhanced ownership data in the response. Default is true when supported by the account.
+    return_zoning: Set to false to disable zoning data in the response. Default is true when supported by the account.
+    return_parcels: Default true. A false value will not return parcel records. Used to return additional add-on datasets when parcel information is not needed.
+
+Response fields
+
+    parcels: A GeoJSON Features Collection of Features, sorted by descending relevance rank, containing the matched Parcel Records. An empty results set with no error means no Parcel Records could be matched.
+
+Example API request
+
+GET https://app.regrid.com/api/v2/?owner=techone%20development&path=/us/mi/wayne/detroit&limit=15&token=<token>
+
+Example results:
+
+Query by Fields US
+
+api/v2/parcels/query
+
+In addition to the primary identifiers in our dataset, our API is also queryable at a nationwide level using a subset of our 120+ schema fields that have been optimized for queries at scale. The following is the general form for this endpoint. See additional query endpoints in the OpenAPI Spec Sandbox for examples on each field type and our API Examples article. Multiple fields can be used in a single query (up to 4), to refine results.
+
+Currently our parcel API is also queryable at a nationwide level by the following fields:
+Field 	Description
+ll_gisacre 	numeric / double precision
+ll_gissqft 	numeric / integer
+usps_vacancy 	text
+rdi 	text
+ll_bldg_count 	numeric / integer
+saleprice 	numeric / double precision
+zoning 	text
+zoning_id 	numeric
+zoning_type 	text
+zoning_subtype 	text
+lbcs_activity 	numeric
+lbcs_function 	numeric
+lbcs_structure 	numeric
+lbcs_site 	numeric
+lbcs_ownership 	numeric
+saledate 	date
+szip 	text
+ll_uuid 	uuid
+landval 	numeric
+geoid 	text
+owner 	text
+parcelnumb 	text
+state2 	text
+path 	text
+county 	text
+yearbuilt 	numeric / integer
+improvval 	numeric / double precision
+alt_parcelnumb1 	text
+census_block 	text
+census_blockgroup 	text
+census_tract 	text
+census_school_district 	text
+qoz 	text
+ll_stack_uuid 	uuid
+Example queries with supported keys and value formats
+
+GET or POST /api/v2/parcels/query?fields[<field_name>][<operator>]=<value>...&token=<token_value>
+
+Example API requests
+
+Numeric field ll_gisacre
+
+https://app.regrid.com/api/v2/parcels/query?fields[ll_gisacre][eq]=1000.2426&offset_id=1234&limit=5
+
+https://app.regrid.com/api/v2/parcels/query?fields[ll_gisacre][ne]=100&fields[ll_gisacre][gt]=99.0&fields[ll_gisacre][lt]=200&fields[ll_gisacre][between]=[100, 300]
+
+Text field zoning
+
+https://app.regrid.com/api/v2/parcels/query?fields[zoning][ilike]=RS-1&fields[zoning][ne]=RS-1&fields[zoning][between]=["RS-1", "RS-14"]&fields[zoning][nin]=["RS-1", "RS-9", "MHPD", "RD-D", "AG-2"]&fields[zoning][order]=DESC
+
+Date field saledate
+
+https://app.regrid.com/api/v2/parcels/query?&fields[saledate][between]=["2020", "2021/04/22"]&fields[saledate][isnull]=false&limit=100
+
+Boolean field struct
+
+https://app.regrid.com/api/v2/parcels/query?fields[struct][ne]=false&fields[struct][eq]=true&fields[struct][isnull]=false
+
+Example results format
+
+{
+    "parcels": {
+        "type": "FeatureCollection",
+        "features": [
+          array of GeoJSON features...
+        ]
+    }
+}
+
+Supported types and query parameters
+
+All field types are supported. The operators available vary by field type:
+Field Type 	Operators
+Number 	eq, ne, isnull, between, gt, gte, lt, lte, in, nin, order
+Text 	eq, ne, isnull, in, nin, ilike
+Date 	eq, ne, isnull, between, gt, gte, lt, lte, in, nin, order
+Boolean 	eq, ne, isnull
+All Types 	limit, count, offset_id
+Operators on each field
+
+fields[<field_name>][<operator>]
+Operator 	Description
+eq 	equal
+ne 	not equal
+isnull 	is null, takes boolean true/false values only
+between 	between inclusive
+gt 	greater than
+gte 	greater than or equal
+lt 	less than
+lte 	less than or equal
+in 	in set
+nin 	not in set
+ilike 	case insensitive, matches the given string within the text field value (ex %VALUE%)
+order 	ASC/DESC
+Parameters for the entire query
+
+    fields[<field_name>][<operator>]: Use a supported field name and operator as the parameter key, and a valid value to filter parcels.
+    token: Your Regrid authorization token.
+    geojson: A GeoJSON object with at least one geometry to filter results. The geometries can be no larger than 80 sq miles. If both geojson and lat-lon are present, geojson takes precedence. Accepted GeoJSON formats are: FeatureCollection, Feature or geometry. Supported geometries: Polygon, MultiPolygon, Point, MultiPoint, LineString and MultiLineString. Variations of geometry types are allowed in a FeatureCollection.
+    radius: (Default: 0, Maximum: 32000) Radius in meters for which all Parcel records will be returned if they are within the radius zone from latitude and longitude point. See Pagination section for details.
+    offset_id: ID from a previous query exceeding the limit, returns the next set of results up to limit.
+    limit: (optional) Default 20. Maximum number of Parcel Records to return. Max is 1000.
+
+    path: Represents a full or partial path as defined by the Regrid Standard Schema ('/us/state_id', '/us/state_id/county_slug', or '/us/state_id/county_slug/city_slug'), or a full parcel path string (like '/us/state_id/county_slug/city_slug/parcel_path_id')"
+    return_count: Set to true to enable count of parcels in query.
+    return_geometry: Default true. Features are returned without geometry values. This reduces the payload size significantly if only field data is required.
+    return_custom: Default false: A true value allows county-specific fields to be passed through beyond standard schema fields only.
+    return_field_labels: Default false: A true value shows the naming convention for each standardized schema field.
+    return_stacked: Default true: A false value returns the first parcel if geometries are identical.
+    return_matched_buildings: Set to false to disable building footprint data in the response. Default is true when supported by the account.
+    return_matched_addresses: Set to false to matched addresses data in the response. Default is true when supported by the account.
+    return_enhanced_ownership: Set to false to disable enhanced ownership data in the response. Default is true when supported by the account.
+    return_zoning: Set to false to disable zoning data in the response. Default is true when supported by the account.
+    return_custom_id: Default false. Set to true when input GeoJSON features include a 'custom_id' field in the 'properties' object. This flag enables the resulting parcels to include the user-set custom ID for matching parcel(s).
+    return_parcels: Default true. A false value will not return parcel records. Used to return additional add-on datasets when parcel information is not needed.
+
+Custom Identifiers
+
+Query based endpoints allow a custom identifier defined by API users on each GeoJSON geometric feature (point, polygon, etc) using the custom_id key included in the feature's properties. This allows one to keep track of their input point to easily verify if that point found zero or more parcels.
+
+This custom ID does not have to be unique so as to return any logical meaning API users may have for that identifier.
+Pagination
+
+If your request returns more than 1000 parcel records, you will need to use pagination for your query results.
+
+Pagination is performed by including an offset_id parameter with the integer id from a previous query. Each parcel record has an id for location in our database. You will need the id of the last parcel record from your previous query to use in the next iteration of the pagination request. This request returns the remaining parcels up to the value of the limit parameter.
+
+To page results, the initial request needs to include the parameter offset_id=0 which indicates results need to be in ID order. The required id is located at the root level of each parcel feature returned with id key.
+
+Parcel_id.png
+
+Example pagination first request
+
+Give me the parcel records in Los Angeles County where the parcel acreage is greater than 2 acres. For reference, there are 228,122 parcels matching this query.
+
+https://app.regrid.com/api/v2/parcels/query?fields[geoid][eq]=06037&fields[ll_gisacre][gt]=2&offset_id=0&limit=1000
+
+Example pagination subsequent request
+
+https://app.regrid.com/api/v2/parcels/query?fields[geoid][eq]=06037&fields[ll_gisacre][gt]=2&offset_id=155171239&limit=1000
+
+The order parameter is not allowed when paging, as is indicated by an error message if the query is invalid.
+
+If a total count is needed, an initial query can be made with count=true. Otherwise, successive pages can be requested until the results are less than the limit or empty.
+Count
+
+When the count parameter is set to a boolean value of true or false, the results will be the entire dataset filtered by other optional operators on the field(s). When the boolean value is true, there is no cost to return the total number of parcels for the query.
+
+Requests with count return an integer value in the following format.
+
+Example results format
+
+  {
+    "count": 1846
+  }
+
+Limit is ignored when the count operator is present.
+Customize response payload
+
+There are several flags available to reduce payload size.
+
+    return_geometry: A list of features is returned with geometry values. Default true.
+    return_custom: County-specific custom fields are included in results. This can be used to retrieve only Standard Schema results. Default false.
+    return_field_labels: An object of Standard Schema field names and descriptions are returned within each feature. Default false in API v2.
+    return_stacked: A false value means only the first parcel is returned if geometries are identical. Default true.
+
+Request format
+
+Queries can be made as GET or POST requests. The examples below show the same query being made by both types of request.
+
+GET request example
+
+fields[ll_gisacre][eq]=1000.2426&fields[ll_gisacre][ne]=1000&limit=5
+
+POST request example
+
+{
+  "fields": {
+    "ll_gisacre": {
+      "eq": 1000.2426,
+      "ne":  1000
+    }
+  },
+  "limit": 5
+}
+
+Other considerations
+
+    Date formats allowed: YYYY/MM/DD or MM/DD/YYYY Also, a value with a year only like "2022" will evaluate as "2022/01/01".
+    Multiple operators are ANDed together.
+    Boolean and boolean-like fields (struct, usps_vacancy, rdi) can only be queried with a subset of operators (eq, ne, isnull).
+
+Query by Fields International
+
+api/v2/<country code>/parcels/query
+
+In addition to the primary identifiers in our dataset, our API is also queryable at a nationwide level using a subset of our 76 international schema fields that have been optimized for queries at scale. The following is the general form for this endpoint. See additional query endpoints in the OpenAPI Spec Sandbox for examples on each field type and our API Examples article. Multiple fields can be used in a single query (up to 4), to refine results.
+
+Currently our parcel API is also queryable internationally by the following fields:
+Field 	Description
+ogc_fid 	numeric / integer
+geoid 	text
+parcelnumb 	text
+postcode 	text
+address 	text
+reserve 	text
+ll_gissqm 	numeric / double
+admin0 	text
+admin1 	text
+admin2 	text
+admin3 	text
+ll_uuid 	uuid
+ll_stack_uuid 	uuid
+path 	text
+
+Supported Countries and their respective country codes (admin0):
+Country Code 	Country
+CA 	Canada
+Example queries with supported keys and value formats
+
+GET or POST /api/v2/<country code>/query?fields[<field_name>][<operator>]=<value>...&token=<token_value>
+
+Example API requests
+
+Numeric field ll_gissqm
+
+https://app.regrid.com/api/v2/ca/query?fields[ll_gissqm][eq]=1000.2426&offset_id=1234&limit=5
+
+https://app.regrid.com/api/v2/ca/query?fields[ll_gissqm][ne]=100&fields[ll_gissqm][gt]=99.0&fields[ll_gissqm][lt]=200&fields[ll_gissqm][between]=[100, 300]
+
+Text field reserve
+
+https://app.regrid.com/api/v2/ca/query?fields[reserve][ilike]=BIG ISLAND INDIAN RESERVE&fields[zoning][ne]=BEARDYS AND OKEMASIS IR 96 AND 97B&fields[reserve][order]=DESC
+
+Example results format
+
+{
+    "parcels": {
+        "type": "FeatureCollection",
+        "features": [
+          array of GeoJSON features...
+        ]
+    }
+}
+
+Supported types and query parameters
+
+All field types are supported. The operators available vary by field type:
+Field Type 	Operators
+Number 	eq, ne, isnull, between, gt, gte, lt, lte, in, nin, order
+Text 	eq, ne, isnull, in, nin, ilike
+All Types 	limit, count, offset_id
+Operators on each field
+
+fields[<field_name>][<operator>]
+Operator 	Description
+eq 	equal
+ne 	not equal
+isnull 	is null, takes boolean true/false values only
+between 	between inclusive
+gt 	greater than
+gte 	greater than or equal
+lt 	less than
+lte 	less than or equal
+in 	in set
+nin 	not in set
+ilike 	case insensitive, matches the given string within the text field value (ex %VALUE%)
+order 	ASC/DESC
+Parameters for the entire query
+
+    fields[<field_name>][<operator>]: Use a supported field name and operator as the parameter key, and a valid value to filter parcels.
+    token: Your Regrid authorization token.
+    geojson: A GeoJSON object with at least one geometry to filter results. The geometries can be no larger than 207,000 square meters. If both geojson and lat-lon are present, geojson takes precedence. Accepted GeoJSON formats are: FeatureCollection, Feature or geometry. Supported geometries: Polygon, MultiPolygon, Point, MultiPoint, LineString and MultiLineString. Variations of geometry types are allowed in a FeatureCollection.
+    radius: (Default: 0, Maximum: 32000) Radius in meters for which all Parcel records will be returned if they are within the radius zone from latitude and longitude point. See Pagination section for details.
+    offset_id: ID from a previous query exceeding the limit, returns the next set of results up to limit.
+    limit: (optional) Default 20. Maximum number of Parcel Records to return. Max is 1000.
+
+    path: Represents a full or partial path as defined by the Regrid International Schema ('/admin0/admin1', '/country code/admin1/admin2_slug', or '/country code/admin1/admin2_slug/admin3_slug'), or a full parcel path string (like '/admin0/admin1/admin2_slug/admin3_slug/parcel_path_id')
+    return_count: Set to true to enable count of parcels in query.
+    return_geometry: Default true. Features are returned without geometry values. This reduces the payload size significantly if only field data is required.
+    return_custom: Default false: A true value allows county-specific fields to be passed through beyond standard schema fields only.
+    return_field_labels: Default false: A true value shows the naming convention for each standardized schema field.
+    return_custom_id: Default false. Set to true when input GeoJSON features include a 'custom_id' field in the 'properties' object. This flag enables the resulting parcels to include the user-set custom ID for matching parcel(s).
+
+Pagination
+
+If your request returns more than 1000 parcel records, you will need to use pagination for your query results.
+
+Pagination is performed by including an offset_id parameter with the integer ogc_fid from a previous query. Each parcel record has an ogc_fid field in our database. You will need the ogc_fid of the last parcel record from your previous query to use in the next iteration of the pagination request. This request returns the remaining parcels up to the value of the limit parameter.
+
+To page results, the initial request needs to include the parameter offset_id=0 which indicates results need to be in ID order. The required ogc_fid is located at the root level of each parcel feature returned with ogc_fid key.
+
+Note: The ogc_fid values returned are not stable long-term but can be used dymically in pagination requests or scripts that populate these values and use them in followup requests.
+
+Example pagination first request
+
+Give me the parcel records where the parcel size is greater than 200 square meters.
+
+https://app.regrid.com/api/v2/query?fields[geoid][eq]=06037&fields[ll_gissqm][gt]=2&offset_id=0&limit=1000
+
+Example pagination subsequent request
+
+https://app.regrid.com/api/v2/query?fields[geoid][eq]=06037&fields[ll_gissqm][gt]=2&offset_id=155171239&limit=1000
+
+The order parameter is not allowed when paging, as is indicated by an error message if the query is invalid.
+
+If a total count is needed, an initial query can be made with count=true. Otherwise, successive pages can be requested until the results are less than the limit or empty.
+Count
+
+When the count parameter is set to a boolean value of true or false, the results will be the entire dataset filtered by other optional operators on the field(s). When the boolean value is true, there is no cost to return the total number of parcels for the query.
+
+Requests with count return an integer value in the following format.
+
+Example results format
+
+  {
+    "count": 1846
+  }
+
+Limit is ignored when the count operator is present.
+Customize response payload
+
+There are several flags available to reduce payload size.
+
+    return_geometry: A list of features is returned with geometry values. Default true.
+    return_custom: Used to retrieve only International Schema results. Default false.
+    return_field_labels: An object of International Schema field names and descriptions are returned within each feature. Default false.
+    return_stacked: A false value means only the first parcel is returned if geometries are identical. Default true.
+
+Request format
+
+Queries can be made as GET or POST requests. The examples below show the same query being made by both types of request.
+
+GET request example
+
+fields[ll_gisacre][eq]=1000.2426&fields[ll_gisacre][ne]=1000&limit=5
+
+POST request example
+
+{
+  "fields": {
+    "ll_gisacre": {
+      "eq": 1000.2426,
+      "ne":  1000
+    }
+  },
+  "limit": 5
+}
+
+Other considerations
+
+    Date formats allowed: YYYY/MM/DD or MM/DD/YYYY Also, a value with a year only like "2022" will evaluate as "2022/01/01".
+    Multiple operators are ANDed together.
+    To filter results by region, the path parameter in the form returned in parcel results can be used in full or partially, path=/ca/on/durham/oshawa.
+    If filtering results with 'admin columns' (admin0, admin1, admin2 and/or admin3), for best results use values that are returned in Regrid results and use an exact match, fields[admin2][eq]=Duram.
+
+Area Geometry Search
+
+api/v2/parcels/area
+
+Search for parcel records in a specific geographical area. Accepted formats vary from GeoJSON Feature Collection of geometries (Polygon, MultiPolygon, Point, MultiPoint, LineString and/or MultiLineString), or a Feature with a GeoJSON geometry or a direct GeoJSON geometry. The parameter geojson takes priority if lat/lon is used in the same request. These parameters also accept an optional radius parameter in meters to create a buffer around the given geometries.
+
+NOTE:
+
+    When adding a radius, the requested area is increased, potentially exceeding the maximum allowable size for a single request.
+    This endpoint shares all parameters as Query by Fields except the fields parameter.
+
+HTTP API request
+
+POST or GET /api/v2/area
+
+Query parameters
+
+    token: Your Regrid authorization token.
+    geojson: A GeoJSON object with at least one geometry to filter results. The geometries can be no larger than 80 sq miles. If both geojson and lat-lon are present, geojson takes precedence. Accepted GeoJSON formats are: FeatureCollection, Feature or geometry. Supported geometries: Polygon, MultiPolygon, Point, MultiPoint, LineString and MultiLineString. Variations of geometry types are allowed in a FeatureCollection.
+    radius: (Default: 0, Maximum: 32000) Radius in meters for which all Parcel records will be returned if they are within the radius zone from latitude and longitude point.
+    offset_id: ID from a previous query exceeding the limit, returns the next set of results up to limit.
+
+    limit: (optional) Default 20. Maximum number of Parcel Records to return. Max is 1000.
+    return_count: Set to true to enable count of parcels in query.
+    return_geometry: Default true. Features are returned without geometry values. This reduces the payload size significantly if only field data is required.
+    return_custom: Default false: A true value allows county-specific fields to be passed through beyond standard schema fields only.
+    return_field_labels: Default false: A true value shows the naming convention for each standardized schema field.
+    return_stacked: Default true: A false value returns the first parcel if geometries are identical.
+    return_matched_buildings: Set to false to disable building footprint data in the response. Default is true when supported by the account.
+    return_matched_addresses: Set to false to matched addresses data in the response. Default is true when supported by the account.
+    return_enhanced_ownership: Set to false to disable enhanced ownership data in the response. Default is true when supported by the account.
+    return_zoning: Set to false to disable zoning data in the response. Default is true when supported by the account.
+    return_custom_id: Default false. Set to true when input GeoJSON features include a 'custom_id' field in the 'properties' object. This flag enables the resulting parcels to include the user-set custom ID for matching parcel(s).
+    return_parcels: Default true. A false value will not return parcel records. Used to return additional add-on datasets when parcel information is not needed.
+
+Response fields
+
+    parcels: A GeoJSON Features Collection of Features, each containing the matched Parcel Records. An empty Feature Collection with no error means no Parcel Records could be matched.
+    area: Total area of the searched polygon (in acres, sq_meters, and sq_miles).
+    count: Total number of parcel records within the geometry(ies), if return_count is true.
+
+Example request
+
+POST /api/v2/area
+
+  {
+    "token": "my_token",
+    "geojson": {"type":"Feature","properties":{},"geometry":{"type":"Polygon","coordinates":[[[-83.074472,42.365423],[-83.073946,42.364478],[-83.071878,42.365108],[-83.072403,42.366061],[-83.074472,42.365423]]]}},
+    "limit": 50,
+    "page": 1
+  }
+
+Example response:
+
+Typeahead (by Address)
+
+api/v2/parcels/typeahead
+
+This endpoint delivers a full address lookup and validation with corresponding unique identifier (ll_uuid) for each parcel based on matching the query.
+
+Please see the Typeahead API documentation for details about this feature, and contact our sales team at parcels@regrid.com for a demo or to enable your account.
+
+Query parameters
+
+    token: Your Regrid authorization token.
+    query: A street address or partial address, starting at the beginning
+
+Note: US-only
+Additional Endpoints
+Parcel Path
+
+api/v2/parcels/path
+
+This endpoint delivers a single parcel record based on the unique path. This works well in combination with the Typeahead API endpoint.
+
+HTTP API request general form
+
+ GET /api/v2/parcel?path=<path>&token=<token>
+
+Query parameters
+
+    token: Your Regrid authorization token.
+    path: (required) The canonical path of the parcel in the Regrid system. For example, '/us/tx/dallas/northeast-dallas/6471' or '/ca/mb/division-no-11/winnipeg/52941'.
+    return_custom: Default false: A true value allows county-specific fields to be passed through beyond standard schema fields only.
+    return_field_labels: Default false: A true value shows the naming convention for each standardized schema field.
+    return_stacked: Default true: A false value returns the first parcel if geometries are identical.
+    return_matched_buildings: Set to false to disable building footprint data in the response. Default is true when supported by the account.
+    return_matched_addresses: Set to false to matched addresses data in the response. Default is true when supported by the account.
+    return_enhanced_ownership: Set to false to disable enhanced ownership data in the response. Default is true when supported by the account.
+    return_zoning: Set to false to disable zoning data in the response. Default is true when supported by the account.
+    return_parcels: Default true. A false value will not return parcel records. Used to return additional add-on datasets when parcel information is not needed.
+
+Example request
+
+ GET https://app.regrid.com/api/v2/parcel?path=/us/mi/wayne/detroit/364491&token=<token>
+
+Example truncated results
+
+{
+    "parcels": {
+      "type": "FeatureCollection",
+      "features": [
+        {
+          "type": "Feature",
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [
+              [
+                [
+                  -83.0734768,
+                  42.36519
+                ]
+              ]
+            ]
+          },
+          "properties": {
+            "headline": "440 Burroughs St",
+            "path": "/us/mi/wayne/detroit/364491",
+            "fields": {
+              "ll_uuid": "16bc4f67-009a-496c-bd0a-9e9d55f5228b",
+              "gisacre": 0.697
+            },
+            "field_labels": {
+              "ll_uuid": "UUID",
+              "gisacre": "County-Provided Acres"
+            },
+            "context": {
+              "headline": "Detroit, MI",
+              "name": "Detroit",
+              "path": "/us/mi/wayne/detroit",
+              "active": true
+            },
+            "ll_uuid": "16bc4f67-009a-496c-bd0a-9e9d55f5228b"
+          },
+          "id": 364491
+        }
+      ]
+    }
+  }
+  
+
+Regrid ID
+
+api/v2/parcels/<ll_uuid>
+
+This endpoint delivers a single parcel record based on the Regrid id (ll_uuid), as described in our parcel schema or retrieve the schema definition from the API.
+
+This works well in combination with the Typeahead API endpoint or any time you have an ll_uuid of interest.
+
+HTTP API request general form
+
+GET /api/v2/parcels/<ll_uuid>?token=<token>
+
+Query parameters
+
+    token: Your Regrid authorization token.
+    ll_uuid: (required) The UUID retrieved from another Regrid API call. For example, 8b6f4f51-58ad-4969-93b3-fdfb348a7084.
+    return_custom: Default false: A true value allows county-specific fields to be passed through beyond standard schema fields only.
+    return_field_labels: Default false: A true value shows the naming convention for each standardized schema field.
+    return_stacked: Default true: A false value returns the first parcel if geometries are identical.
+    return_matched_buildings: Set to false to disable building footprint data in the response. Default is true when supported by the account.
+    return_matched_addresses: Set to false to matched addresses data in the response. Default is true when supported by the account.
+    return_enhanced_ownership: Set to false to disable enhanced ownership data in the response. Default is true when supported by the account.
+    return_zoning: Set to false to disable zoning data in the response. Default is true when supported by the account.
+    return_parcels: Default true. A false value will not return parcel records. Used to return additional add-on datasets when parcel information is not needed.
+
+Example API request
+
+GET https://app.regrid.com/api/v2/parcels/16bc4f67-009a-496c-bd0a-9e9d55f5228b?token=<token>
+
+Example results:
+
+Schemas
+
+Retrieve a json representation of our Schemas
+Regrid Parcel Schema
+
+api/v2/us/schemas/parcel
+
+This endpoint retrieves the current Regrid Parcel Schema. You can use premium_only to retrieve the schema listed for only premium fields.
+
+    premium_only: Default returns all. Set to true to return schema for only premium fields and false to return only Standard fields. US schema only.
+
+HTTP API request
+
+GET /api/v2/us/schemas/parcel
+
+Response fields
+
+    schema: An object with details on all fields in the Regrid Parcel Schema.
+
+Example response:
+
+Matched Buildings Schema
+
+api/v2/us/schemas/building
+
+This endpoint retrieves the current Regrid Matched Building Footprints schema.
+Matched Addresses Schema
+
+api/v2/us/schemas/address
+
+This endpoints retrieves the current Regrid Matched Secondary Addresses
+Enhanced Ownership Schema
+
+api/v2/us/schemas/enhanced_ownership
+
+This endpoint retrieves the current Regrid Enhanced Ownership Schema.
+Standardized Zoning Schema
+
+api/v2/us/schemas/zoning
+
+This endpoint retrieves the current Regrid Standardized Zoning Schema.
+Canada Parcel Schema
+
+HTTP API request
+
+GET /api/v2/ca/schemas/parcel
+
+Response fields
+
+    schema: An object with details on all fields in the Regrid Canada Parcel Schema.
+
+Example response:
+
+Metadata
+County Metadata (Verse)
+
+api/v2/us/verse
+
+This endpoint retrieves all records from our verse schema. These records are counties in the United States and Puerto Rico that tell the last time we did a full data pull from the source. Occasionally these records are of cities when that is how data is reported.
+
+Note for bulk data customers: This endpoint may reflect data updates before they are available in bulk files. The verse file included with your bulk data deliveries will always reflect the current state of data available to you.
+
+HTTP API request general form
+
+GET /api/v2/us/verse
+
+Query parameters
+
+    return_geometry (optional): Default false. Features are returned without geometry values. This reduces the payload size significantly when only field data is required.
+
+Example API request
+
+GET https://app.regrid.com/api/v2/us/verse?return_geometry=true
+
+Example results
+Example response:
+
+Canada Metadata (Verse)
+
+api/v2/ca/verse
+
+This endpoint retrieves all records from our verse schema. These records indicate the last time we did a full data pull from the source. Occasionally these records are of cities when that is how data is reported.
+
+Note for bulk data customers: This endpoint may reflect data updates before they are available in bulk files. The verse file included with your bulk data deliveries will always reflect the current state of data available to you.
+
+HTTP API request general form
+
+GET /api/v2/ca/verse
+
+Query parameters
+
+    return_geometry (optional): Default false. Features are returned without geometry values. This reduces the payload size significantly when only field data is required.
+
+Example API request
+
+GET https://app.regrid.com/api/v2/ca/verse?return_geometry=true
+
+Example results
+Example response:
+
+API Account Usage
+
+api/v2/usage
+
+Check your current API usage stats to see how many requests, parcel records, and tiles have been used. You can see full history with the parameter return_full_history or specify a specific date range.
+
+HTTP API request general form
+
+GET /api/v2/usage?token=<token>
+
+Query parameters
+
+    token: Your Regrid assigned authorization token.
+    return_full_history (optional): Set to true if you would like API usage history that goes beyond your current monthly cycle.
+    begin_date: (optional) Date type formatted as 'YYYY/MM/DD' returns the usage from the specified beginning date to current date unless end_date` is used.
+    end_date: (optional) Date type formatted as 'YYYY/MM/DD' returns the usage for all usage up until the specified ending date unless begin_date is used and when.
+    return_by_token: (optional) returns usage by all available tokens. See by_token array in response of each token's usage data.
+    return_by_this_token: (optional) returns usage for only this token.
+
+Response fields
+
+    cycle_dates: The start and end date of the current cycle.
+    cycle_usage: Counts of requests, results, and tiles used during the current cycle.
+    full_history: An array of stats for previous cycles. Only included if the optional return_full_history boolean query parameter is set to true.
+    by_token: An array of usage data by each token. Keys include token 'name', 'token_fragment' the last few characters of the token, 'cycle_usage' object and 'full_history' array.
+
+Example request:
+
+GET https://app.regrid.com/api/v2/usage?token=<token>&full_history=true
+
+Example response:
+
+Report Data Issues
+
+api/v2/report
+
+You can report issues to Regrid of specific parcel records or general areas to us using this report endpoint. Reports help us prioritize updates. However, we cannot apply data received to this endpoint directly to our parcel data or respond individually to specific reports.
+
+HTTP API request general form
+
+POST /api/v2/report?token=<token>
+
+Query parameters
+
+    token: Your Regrid authorization token.
+    path: Represents the path for the '/country code/state_id/county_slug' or 'admin0/admin1/admin2' as defined by the US and International Regrid Schemas.
+    ll_uuid (optional): The ll_uuid of a parcel, if the report is for a specific parcel
+    comment (optional): String describing the issue
+    details (optional): A hash with details on specific fields. This hash only accepts standard column names as keys.
+
+Response fields
+
+    message: Message on the status of the report.
+    id: ID of the new report.
+
+Example request
+
+POST https://app.regrid.com/api/v2/report?token=YOUR_TOKEN_HERE
+
+{
+  "path": "/us/al/elmore/eclectic/5",
+  "ll_uuid": "8ba95684-e001-4362-801c-39f30a13bee4",
+  "comment": "Property has a new owner",
+  "details": {
+    "owner": "Johnny Parcel",
+    "saleprice": 200000
+  }
+}
+
+Example response
+
+{
+    "message": "Report received",
+    "id": 2238
+}
+
+
+
+
+
+Regrid's Batch Parcel API
+
+To support large requests that can take some time to process, we have a set of endpoints for their creation, management and download when they are ready.
+
+When using the the API v2 Parcel Points endpoint with a list of points that exceed our limit of 1000, the batch processing system can be used. It supports up to 100,000 input points per request.
+
+Another key feature our batch processing includes is allowing a custom identifier defined by API users on each point (using the custom_id key). This allows one to keep track of their input point to easily verify if that point found a parcel (or parcels!) or not.
+
+Input can be a CSV file, CSV data or like our full real-time API v2 a GeoJSON Feature Collection of Points.
+
+Output is the same as our [API v2 response format](link to v2 IO output section] but file size can be significantly larger.
+
+To fine tune your requests Regrid's Batch Parcel API supports the relevant parameters of API v2 endpoints.
+
+We have introduced an optional callback_url parameter if you'd like to be informed programatically when the batch processing job is complete and ready to download. Just have your endpoint ready to receive your callback URL.
+
+The batch points endpoint also supports an optional country ID to be used with Canada parcels as well. [Link to update to add Canada to plan]
+
+Parcel counts are incremented when the completed job has been downloaded.
+Batch Endpoints at a glance
+
+https://app.regrid.com/api/v2/[country_code]/...
+
+    batch/points
+    batch/status/<job_uuid>
+    batch/jobs
+    batch/<job_uuid>/download
+    batch/<job_uuid> Delete
+
+Batch Endpoints in detail
+batch/points
+
+Reverse Geocoding endpoint
+
+api/v2/batch/points
+
+Similar to the API v2 parcels/point endpoint. This endpoint receives a list of points in two forms: A standard CSV file upload, or the API v2 standard GeoJSON format containing a Feature Collection of Point Features. One can also include a custom_id value to track whether each point has a parcel match in the results. This custom ID does not have to be unique. Letters and numbers are allowed.
+
+Filtering params are similar to the parcels/point endpoint as listed below.
+
+The optional callback_url parameter is used to programatically be informed when the batch processing job is complete and ready to download.
+
+HTTP API request general form
+
+POST /api/v2/batch/points?callback_url=<your domain called when ready to download>&token=<token>
+
+Query parameters
+
+    geojson: A GeoJSON Feature Collection containing GeoJSON Point Features. Optionally, the POST body can also contain a direct GeoJSON Feature Collection object at the root level, without being scoped within a 'geojson' object. The properties can also contain a custom_id key to identify returned parcels to each point.
+    file: A CSV file with a header column containing lat, lon, custom_id (optional) columns.
+    CSV text in request body: Raw CSV text can also be posted directly in the request body.
+    callback_url: Optional webhook to notify when the job is complete (tries up to 3 times). Payload sent to the callback URL is the same as the batch status endpoint. [anchor link to that]
+    token: Your Regrid authorization token.
+    return_geometry: Default true. Features are returned without geometry values. This reduces the payload size significantly if only field data is required. Default false
+    radius: (Default: 0, Maximum: 32000) Radius in meters for which all Parcel records will be returned if they are within the radius zone from latitude and longitude point.
+    return_stacked: Default true: A false value returns the first parcel if geometries are identical. When stacked parcels are found from a given point, each parcel is returned with the custom_id appended to the parcel Feature result's properties object.
+    return_custom: Default false: A true value allows county-specific fields to be passed through beyond standard schema fields only.
+    return_field_labels: Default false: A true value shows the naming convention for each standardized schema field.
+
+Example US API request
+
+POST https://app.regrid.com/api/v2/us/batch/points?&token=<token>
+
+Body:
+
+CSV text body:
+
+CSV file:
+
+curl request:
+
+Note: If a custom_id is not included on some or all of the input points, the index of the data will be used as the custom_id (starting with "0" through the number of input points).
+Remember custom_id values in results will not be unique as multiple parcels matching on a single point may be returned.
+Example US results:
+
+batch/<job_uuid>/status
+
+Check current status of running jobs, when status is "ready" the job can be downloaded using the download endpoint.
+key 	value
+job_type 	Type of job being run
+job_uuid 	Unique identifier for the job
+status 	Current status of the job ('queued', 'running', 'ready', 'downloaded', 'removed', 'failed')
+updated_at 	UTC timestamp of last updated
+percent_complete 	Percentage complete of the job based on the input count
+processed_count 	Number of input points that have been processed
+failed_count 	Number of failures that have occurred during processing job (not a number of point in error)
+time_remaining 	Estimated seconds remaining for the job to complete
+  	 
+
+HTTP API request general form
+
+GET /api/v2/batch/<job_uuid>/status&token=<token>
+
+Query parameters
+
+    token: Your Regrid authorization token.
+
+URL parameter
+
+    job_uuid: (required) The UUID returned by the initial batch call and available in the status list endpoint. For example, 8b6f4f51-58ad-4969-93b3-fdfb348a7084.
+
+Response fields
+
+    job: Contains an object with metadata about the current job including: status, job_uuid, percent_complete
+
+Example US API request
+
+POST https://app.regrid.com/api/v2/batch/status/939ed5d2-ec3b-479a-9dc6-a06360f97f70?token=<token>
+
+Example US results:
+
+batch/jobs
+
+Check current status of all running jobs. Note order is by most recently completed 'ready' jobs. All jobs attached to your account are listed here. Removed jobs won't be listed here.
+
+api/v2/batch/jobs
+
+HTTP API request general form
+
+GET /api/v2/batch/jobs?token=<token>
+
+Query parameters
+
+    token: Your Regrid authorization token.
+    return_all: Default false. By default the most recently updated 10 jobs will be returned from the past 31 days. If set to true, all jobs will be returned including those that have been removed.
+
+Response fields
+
+    jobs: Contains an array of each job's status
+
+Example US API request
+
+GET https://app.regrid.com/api/v2/batch/jobs?token=<token>
+
+Example US results:
+
+batch/<job_uuid>/download
+
+Download the job when ready. The result is formatted as Newline-delimited GeoJSON (each parcel is represented by a GeoJSON feature on a separate newline). This GeoJSON standard format allows for easily streaming and processing results as they are being downloaded.
+
+Parcel counts are incremented when the completed job has started a download. Input points that don't return parcels and stacked parcels are included in counts. So the total parcel count will be at least of input parcels.
+
+api/v2/batch/<job_uuid>/download
+
+HTTP API request general form
+
+GET /api/v2/batch/<job_uuid>/download?token=<token>
+
+Query parameters
+
+    token: Your Regrid authorization token.
+
+URL parameter
+
+    job_uuid: (required) The UUID returned by the initial batch call and available in the status list endpoint. For example, 8b6f4f51-58ad-4969-93b3-fdfb348a7084.
+
+Response fields
+
+    GeoJSON Features on separate line, each containing matched parcel records. An empty Feature means there was no match for the given point.
+
+Example US API request
+
+GET https://app.regrid.com/api/v2/batch/939ed5d2-ec3b-479a-9dc6-a06360f97f70/download?token=<token>
+
+Example US results:
+
+batch/<job_uuid> Delete
+
+Delete the job. Jobs will be automatically deleted after 30 days from creation date. At any time jobs can be deleted. Deletion removes stored input points & parameters, any download files that may have been created, and the optional callback URL.
+
+api/v2/batch/<job_uuid>
+
+HTTP API request general form
+
+DELETE /api/v2/batch/<job_uuid>?token=<token>
+
+Query parameters
+
+    token: Your Regrid authorization token.
+
+URL parameter
+
+    job_uuid: (required) The UUID returned by the initial batch call and available in the status list endpoint. For example, 8b6f4f51-58ad-4969-93b3-fdfb348a7084.
+
+Example US API request
+
+DELETE https://app.regrid.com/api/v2/batch/939ed5d2-ec3b-479a-9dc6-a06360f97f70?token=<token>
+
+Example US results:
+
+Batch Best Practices and Limits
+
+    Each batch job can contain up to 100,000 points with a maximum upload size of 50MB. If you need to process more data, consider breaking it into multiple batches.
+    Input data needs to contain at least 'lat', 'lon' and optional 'custom_id' CSV fields (i.e. columns or GeoJSON properties). If your source data has additional fields they will be ignored. If running into the input file limit, one can send only the required columns.
+    If response payload size needs to be minimized, try disabling returned geometries with the parameter flag upon job creation, return_geometry=false, and/or if stacked parcels aren't needed, try disabling them with return_stacked=false.
+    If points aren't on exact parcels like off roads, or bodies of water, try using a radius.
+    If you have a very large number of points to identify, try out your query parameters with a few points here, or using the API v2 Points endpoint `api/v2/parcels/points, before running the full sized batch job.
+
+
+
+
+
+Input and Output Formats
+Structure of our API
+
+The structure of our API is streamlined to allow straight forward searching/finding and filtering parcels that fulfill your specific attributes. It uses an open standard format of GeoJSON where applicable.
+GeoJSON
+
+GeoJSON is the open standard format for encoding geographic data. For a consistent view of parcel data and ease of interoperability with our endpoints and other tools we strive to accept GeoJSON formatted input and return GeoJSON structured results.
+Geometries Supported
+
+We support every favored GeoJSON geometry type in our geojson request parameter. This includes Polygon, MultiPolygon, Point, MultiPoint, LineString and MultiLineString. Regrid parcels are returned with either a GeoJSON Polygon or MultiPolygon geometry.
+Objects Supported
+
+Feature Collections and Features are the larger wrapper objects supported by our API for both input and output.
+
+For all endpoints that accept the geojson parameter, one can populate this value with a single GeoJSON geometry directly, a Feature containing a geometry (this is the form of a Regrid parcel record) or if there are multiple Geometries to represent, one can POST a FeatureCollection of Features containing any of the various types of GeoJSON geometries.
+
+Many requests will be a single/simple geometry type like a Point, list of points in a MultiPoint or a single Polygon, however there may be cases where one has an assortment of geometry types to query upon. In that case we suggest using a FeatureCollection containing a list of Features of each geometry type. This can allow a request for say, a polygon of a neighborhood or a neighboring parcel or a road (using LineString) to be combined in a single request.
+
+Please note we do not support a GeometryCollection, as although it is part of the GeoJSON spec, many tools do not offer full support and the same results can be achieved using a FeatureCollection containing Features of mixed geometry types.
+Input Format
+
+    As mentioned above all endpoints that support a geojson parameter accepts a Feature Collection, Feature, or GeoJSON geometry.
+
+    Parameters that start with return_ accept a boolean true/false value. This includes parameters like return_count, return_field_labels, return_stacked, return_custom, etc.
+
+    Parameters that start with return_matched_buildings, return_matched_addresses and return_enhanced_ownership are optional parameters that allow one to remove results if these add-ons have been purchased. For example, if you have upgraded your account to return Match Building Footprints, they will be included in results by default unless the parameter return_matched_buildings is set to false.
+
+Output Format
+
+All responses that return parcels are formatted as a list of GeoJSON Features within a Feature Collection, whether it be a list of parcels from the Query by Fields endpoint, or partial parcel records returned in a Typeahead response.
+
+All endpoints return a JSON object containing keys corresponding to the data being returned. This top-level namespacing allows for multiple values to be returned with parcels (or other results).
+
+The 'features' object is an array of parcels in GeoJSON form. The parcel's geometry is contained in the same named key geometry. There the GeoJSON geometry lives. Regrid parcels usually contain a GeoJSON Polygon. Sometimes a single parcel contains multiple polygons in the form of a GeoJSON MultiPolygon.
+
+The next key properties in the parcel Feature contains the bulk of Regrid parcel data.
+
+properties object described
+
+    headline: a human-friendly display address for the parcel. If no address is available, it falls back to the parcel number.
+    path: The parcel's unique identifier as described above in "Parcel Paths Above"
+    fields: Columns from the parcel table. These include Regrid Schema where available, plus additional columns varying by the particular county & data available.
+    field_labels: Human-friendly labels for each key in fields.
+    context: Information about the city or county where this parcel is found, including a path one can use for further searches on endpoints accepting a path parameter.
+    addresses: If add-on is available on your account, an array of additional matched addresses.
+    enhanced_ownership: If add-on is available on your account, an array of additional ownership records on the parcel
+    score: 0-100 available on some responses
+    ll_uuid: The Regrid Universally Unique Identifier guaranteed to be stable over time and allow direct parcel lookups from a couple endpoints including api/v2/parcels/query and api/v2/parcels/:ll_uuid
+
+Lastly there is an id field containing an integer ID. This is not an identifier for the parcel record. If you are in need of a stable identifier we recommend using the ll_uuid field in properties.fields.
+
+See this truncated response below highlighting the high-level structured described.
+Standard Response Format
+
+  {
+    "parcels": {
+      "type": "FeatureCollection",
+      "features": [
+        {
+          "type": "Feature",
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": []
+          },
+          "properties": {
+            "headline": "1435 Randolph St",
+            "path": "/us/mi/wayne/detroit/182127",
+            "fields": {
+              "ogc_fid": 182127,
+              "geoid": "26163",
+              "parcelnumb": "01003946-7",
+              "usecode": "22420"
+            },
+            "field_labels": {},
+            "context": {
+              "path": "/us/mi/wayne/detroit"
+            },
+            "ll_uuid": "83cf8982-b8f8-415e-8cba-f388978f7367",
+          },
+          "id": 182127
+        }
+      ]
+    }
+  }
+
+GET and POST Requests
+
+    GET requests are accepted for most endpoints. This can sometimes be simpler to craft a request directly in the URL as query parameters. Other times when an input geometry is too large for the URL (over ~2k characters) or the number of parameters becomes unwieldy, making POST requests is a practical choice.
+
+    When making a POST request any URL parameters are still used by merging in the POST body. This means the POST parameters take precedence over potentially duplicated URL parameters.
+
+Matched Add-Ons
+Matched Building Footprints
+
+If your account has Matched Building Footprints enabled, then by default any Parcel API endpoints that return parcels will also return building data. This can be controlled with the following parameter:
+
+    return_matched_buildings: Set to false to disable building footprint data in the response. Default is true when the account supports it.
+
+Response Format
+
+In the standard response format, there is an additional top-level buildings Feature Collection of Features. Each Feature in the is a building record.
+
+    See the Buildings Schema document for descriptions of the properties of each building GeoJSON Feature, or inspect the buildings schema in json form using the API.
+    Each building has one or more ll_uuids listed in its properties. These specify which of the parcels contain or overlap these building footprints and correspond to the ll_uuid field in each of the parcels in the parcels Feature Collection in the response.
+
+An example response is below, with some coordinates and parcel fields removed for brevity.
+Example response
+
+Matched Secondary Addresses
+
+Requests
+
+If your account has Matched Secondary Addresses enabled, then by default any of the Parcel API endpoints will include these addresses. You can select this per-call with the following query parameter:
+
+    return_matched_addresses: Set to false to disable matched addresses data in the response. Default is true when the account supports it.
+
+Response Format In the standard response format, the secondary addresses will appear in each parcel feature's properties.addresses array.
+
+    See the Matched Address Schema document for a list of each field and descriptions, or inspect the address schema in json form using the API.
+
+An example response is below, with some coordinates and parcel fields removed for brevity.
+Example response
+
+Enhanced Ownership
+
+Requests If your account has Enhanced Ownership enabled, then by default any of the Parcel API endpoints will include this extra ownership data. You can select this per-call with the following query parameter:
+
+    enhanced_ownership: Set to false to disable enhanced ownership data in the response. Default is true when the account supports it.
+
+Response Format In the standard response format, results is an array of parcel GeoJSON features. The enhanced ownership will appear in a parcel feature's properties.enhanced_ownership array.
+
+    See the Enhanced Ownership Schema document for a list of each field and description, or inspect the address schema in json form using the API.
+
+An example response is below, with some coordinates and parcel fields removed for brevity.
+Example response
+
+Standardized Zoning
+
+If your account has Standardized Zoning enabled, then by default any Parcel API endpoints that return parcels will also return zoning data. This can be controlled with the following parameter:
+
+    return_zoning: Set to false to disable zoning data in the response. Default is true when the account supports it.
+
+Response Format
+
+In the standard response format, there is an additional top-level zoning Feature Collection of Features. Each Feature in this is a zoning record.
+
+    See the Standardized Zoning Schema document for descriptions of the properties of each zoning GeoJSON Feature, or inspect the standardized zoning schema in json form using the API.
+    Each Standardized Zoning record has a zoning_id listed in its properties. These specify which of the parcels contain or overlap the zoning area and correspond to the ll_uuid field in each of the parcels in the parcels Feature Collection in the response.
+
+An example response is below, with some coordinates and parcel fields removed for brevity
+Example response
+
+Examples of Query by Fields
+
+Optimal ways to look up and query our nationwide parcel data
+
+There are many ways to find parcel records of interest. With so much flexibility available, this article is all about describing different ways to do things, and then giving real-world examples of common types of parcel requests.
+
+The Query endpoint is a bit of a 'Swiss Army knife' of Regrid endpoints. Much of the functionality of our other endpoints can be performed by this endpoint as well. It is primarily geared toward filtering by many fields scoped by a location/region/geometry component.
+
+There is a slight learning curve to this endpoint as more information is embedded in the query parameter keys as well as values. But once that structure is clear, the versatility and expressiveness of the Query by Fields endpoint may make it your go-to endpoint.
+Query by Fields
+
+We highlight detailed use here, but sometimes it's best to learn by seeing a specific example request.
+
+    First note the query you'd like to make. What fields from the Regrid Schema will be used to filter parcel records?
+
+    Using the Query by Fields endpoint, take each field and craft it with the fields parameter then a field name and operator with the square bracket formatting (fields[geoid][eq]). The value after the field name is the SQL-like operator as defined in the Query by Fields endpoint.
+
+    Note adding multiple fields to a single query will AND them together which returns more specific results.
+
+    If the dataset is too large or a known region is needed, be sure to use some sort of geographic bounding field. This can be achieved with any of the following parameters: geoid, state2 & county, path (country/state/county), or a geojson geometry of the area of interest. Results can always be paged through using the offset_id and limit parameters if result sets are expected to be larger than 1000.
+
+FIPS code and Owner Name
+
+/api/v2/parcels/query?fields[geoid][eq]=48113&fields[owner][ilike]=7 ELEVEN INC
+
+Find all parcels owned by 7-Eleven in Dallas County, Texas. Limit your result with the limit parameter. Dallas County has additional fields from the county that we provide users, set return_custom to true to view all fields.
+
+Query parameters
+
+    fields[geoid][eq]: Using the county FIPS code
+    fields[owner][ilike]: Using the owner name for the search. This is case sensitive, so use ilike vs eq.
+
+Zip Code, Land Use Code and State
+
+/api/v2/parcels/query??fields[szip][eq]=46202&fields[lbcs_activity][between]=[2000,2999]&fields[state2][eq]=IN
+
+Find businesses in Downtown Indianapolis within a specific zip code. These are parcels marked as Shopping, business, or trade activities. Limit your result with the limit parameter.
+
+Query parameters
+
+    fields[szip][eq]: Using the parcel situs zip code to search.
+    fields[lbcs_activity][between]: You can look up all of our land base use codes here.
+    fields[state2][eq]: Using the parcel situs state to search.
+    path: Represents the path for the '/country/state/county'. This restricts the search to this area.
+
+Land Use Code and FIPS Code
+
+/api/v2/parcels/query?fields[lbcs_activity][eq]=4340&fields[geoid][eq]=48113 Find all the telecommunication parcels in Dallas County, Texas. Want to double check the count, use return_count parameter to get the total
+
+Query parameters
+
+    fields[lbcs_activity][eq]: You can look up all of our land base use codes here.
+    fields[geoid][eq]: Using the county FIPS code
+
+Standardized Zoning Type and FIPS Code
+
+/api/v2/parcels/query?fields[zoning_type][eq]=Special&fields[geoid][eq]=53033 Find all the telecommunication parcels in Dallas County, Texas. Want to double check the count, use return_count parameter to get the total
+
+Query parameters
+
+    fields[zoning_type][eq]: Review all of our standardized zoning types across the USA.
+    fields[geoid][eq]: Using the county FIPS code
+
+Polygon Area, Land Use Code and Land Value
+
+/api/v2/parcels/query?fields[lbcs_activity][eq]=1100&fields[landval][gte]=100000
+
+Locate all the residential properties in a polygon area where the land value is greater or equal to $100,000.
+
+    geojson: Geographic data structure for Polygon. Can use Point and Multipoint in combination with radius in a separate request. For example: {"type":"Polygon","coordinates":[[ [ -96.77737790638413, 32.8277929786983], [-96.77476147447638, 32.82780540015257], [-96.77614360093615, 32.82905995805102]]]}
+    fields[lbcs_activity][eq]: You can look up all of our land base use codes here.
+    fields[landval][gte]: Using parcel land value field.
+
+
+
+
+
+International API
+
+The Regrid International API is quite similar to our original US Parcel API. This section describes some differences and nuanced behavior that can be helpful in utilizing everything the API has to offer.
+Country Codes
+
+    Regrid supports multiple countries and can be switched to a different country when enabled on the account by including the country code in the URL. To query Canada for example, https://app.regrid.com/api/v2/ca/point?<parameters>...
+        Current countries supported: United States (US) and Canada (CA).
+        A Country Code and admin0 values in results are refering to the two character ISO2 Country Code.
+        Use of country codes are treated as case-insensitive, CA is treated the same as ca, for example.
+        By default and for backward compatibility an API request URL without a country code returns United States parcel data if available on the account.
+    If results from multiple countries are desired, one API call per country needs to be made.
+
+Supported Endpoints
+
+All endpoints are supported for international except: Typeahead, and Owner.
+Supported Parameters
+
+All international endpoints support the same parameters as US endpoints if the services exist.
+
+For examples, requests including the paramaters return_matched_buildings, return_matched_addresses, return_enhanced_ownership and return_zoning set to true will be ignored in Canadian API requests.
+
+    return_custom: Custom fields are included in their own custom column within results if available.
+
+Continue learning the API…
+
+
+
+
+

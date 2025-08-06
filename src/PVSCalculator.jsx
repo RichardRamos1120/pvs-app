@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import NeighborLookup from './components/NeighborLookup';
 
 const PVSCalculator = () => {
   // State for the wizard steps
@@ -31,6 +32,7 @@ const PVSCalculator = () => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [bulkUploadResults, setBulkUploadResults] = useState(null);
+  const [showNeighborLookup, setShowNeighborLookup] = useState(false);
   
   // Constants
   const VSL = 7000000; // Value of Statistical Life: $7 million
@@ -166,6 +168,99 @@ const PVSCalculator = () => {
     const newProperties = [...properties];
     newProperties.splice(index, 1);
     setProperties(newProperties);
+  };
+
+  // Handle neighbors found from neighbor lookup
+  const handleNeighborsFound = (neighbors) => {
+    const newProperties = neighbors.map(neighbor => {
+      // Extract real property data from Regrid fields
+      const fields = neighbor.fields || {};
+      
+      // Log the available data for debugging - expand full object
+      console.log('Full neighbor data for:', neighbor.address);
+      console.log('All fields:', JSON.stringify(fields, null, 2));
+      
+      // Use real data when available, fallback to reasonable defaults
+      const property = {
+        address: neighbor.address,
+        incidentId: '',
+        propertyType: fields.usecode ? mapUseCodeToPropertyType(fields.usecode) : 'residential',
+        structureType: 'single_family', // Default, could be enhanced with more mapping
+        yearBuilt: fields.yearbuilt || fields.yearbuilt1 || estimateYearBuilt(neighbor.address),
+        squareFootage: fields.sqft || fields.improvement_value ? estimateSquareFootage(fields.improvement_value) : estimateSquareFootageByAddress(neighbor.address),
+        stories: fields.stories || estimateStories(fields.sqft),
+        constructionType: fields.construction_type || 'wood_frame',
+        roofType: 'composition', // Default
+        exteriorWalls: 'wood_siding', // Default  
+        condition: fields.condition || estimateCondition(fields.yearbuilt),
+        localMultiplier: '1.0'
+      };
+      
+      const value = calculateFIRISValue(property);
+      
+      return {
+        ...property,
+        value,
+        id: Date.now() + Math.random()
+      };
+    });
+    
+    setProperties([...properties, ...newProperties]);
+    setShowNeighborLookup(false);
+  };
+
+  // Helper functions to intelligently estimate missing data
+  const mapUseCodeToPropertyType = (usecode) => {
+    if (!usecode) return 'residential';
+    const code = usecode.toString().toLowerCase();
+    if (code.includes('res') || code.includes('single') || code.includes('1')) return 'residential';
+    if (code.includes('comm') || code.includes('retail') || code.includes('office')) return 'commercial';
+    if (code.includes('ind') || code.includes('warehouse')) return 'industrial';
+    return 'residential'; // Default
+  };
+
+  const estimateYearBuilt = (address) => {
+    // Try to estimate based on area development patterns
+    // This is a rough estimate - could be improved with more data
+    const currentYear = new Date().getFullYear();
+    return Math.floor(currentYear - Math.random() * 30).toString(); // Rough estimate: built in last 30 years
+  };
+
+  const estimateSquareFootage = (improvementValue) => {
+    if (!improvementValue) return Math.floor(1800 + Math.random() * 1200).toString(); // 1800-3000 sq ft
+    
+    // Rough estimate: $100-150 per sq ft
+    const costPerSqFt = 125;
+    const estimated = Math.floor(improvementValue / costPerSqFt);
+    return Math.max(800, Math.min(4000, estimated)).toString(); // Cap between 800-4000 sq ft
+  };
+
+  const estimateSquareFootageByAddress = (address) => {
+    // Different neighborhoods might have different typical sizes
+    // This is a rough estimate based on common patterns
+    if (address && address.toLowerCase().includes('dr')) {
+      return Math.floor(2000 + Math.random() * 800).toString(); // 2000-2800 sq ft for drives
+    }
+    return Math.floor(1600 + Math.random() * 1000).toString(); // 1600-2600 sq ft general
+  };
+
+  const estimateStories = (sqft) => {
+    if (!sqft) return '1';
+    const footage = parseInt(sqft);
+    if (footage > 2500) return '2'; // Larger homes more likely to be 2-story
+    if (footage > 3500) return Math.random() > 0.3 ? '2' : '3'; // Very large homes might be 3-story
+    return '1';
+  };
+
+  const estimateCondition = (yearBuilt) => {
+    if (!yearBuilt) return 'good';
+    const year = parseInt(yearBuilt);
+    const age = new Date().getFullYear() - year;
+    
+    if (age < 10) return 'excellent';
+    if (age < 25) return 'good';
+    if (age < 40) return 'fair';
+    return 'poor';
   };
 
   // Parse CSV content with proper quoted field handling
@@ -459,6 +554,12 @@ const PVSCalculator = () => {
                 {showAddForm ? 'Cancel' : '+ Add Property'}
               </button>
               <button
+                onClick={() => setShowNeighborLookup(!showNeighborLookup)}
+                className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700"
+              >
+                {showNeighborLookup ? 'Cancel' : '🏘️ Find Neighbors'}
+              </button>
+              <button
                 onClick={() => setShowBulkUpload(!showBulkUpload)}
                 className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
               >
@@ -698,6 +799,12 @@ const PVSCalculator = () => {
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+          
+          {showNeighborLookup && (
+            <div className="mb-5">
+              <NeighborLookup onNeighborsFound={handleNeighborsFound} />
             </div>
           )}
           

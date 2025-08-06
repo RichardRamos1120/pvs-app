@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(mkdir:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "WebFetch(domain:regrid.com)",
+      "WebFetch(domain:estated.com)",
+      "WebFetch(domain:attomdata.com)",
+      "Bash(pkill:*)",
+      "Bash(true)",
+      "WebFetch(domain:app.regrid.com)"
     ],
     "deny": []
   }
