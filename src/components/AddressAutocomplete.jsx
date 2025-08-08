@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-
-const REGRID_API_TOKEN = process.env.REACT_APP_REGRID_API_TOKEN;
-const REGRID_BASE_URL = 'https://app.regrid.com/api/v2';
+import ZillowService from '../services/zillowService';
 
 const AddressAutocomplete = ({ 
   value, 
@@ -14,12 +12,16 @@ const AddressAutocomplete = ({
   const [inputValue, setInputValue] = useState(value || '');
   const [suggestions, setSuggestions] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [error, setError] = useState('');
   
   const wrapperRef = useRef(null);
   const debounceTimer = useRef(null);
+  const lastQuery = useRef('');
+  const lastResults = useRef({});
+  const zillowService = new ZillowService();
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -38,143 +40,80 @@ const AddressAutocomplete = ({
     setInputValue(value || '');
   }, [value]);
 
-  // Fetch suggestions from Regrid Typeahead API
+  // Fetch suggestions from Zillow API
   const fetchSuggestions = async (query) => {
+    // Require at least 3 characters to reduce unnecessary calls
     if (query.length < 3) {
       setSuggestions([]);
       return;
     }
 
+    // Check cache first
+    if (lastResults.current[query]) {
+      console.log('Using cached results for:', query);
+      setSuggestions(lastResults.current[query].suggestions);
+      setError(lastResults.current[query].error || '');
+      return;
+    }
+
+    // Avoid duplicate searches
+    if (query === lastQuery.current) {
+      return;
+    }
+    
+    lastQuery.current = query;
     setIsLoading(true);
     setError('');
 
     try {
-      const encodedQuery = encodeURIComponent(query);
-      const requestUrl = `${REGRID_BASE_URL}/parcels/typeahead?query=${encodedQuery}&token=${REGRID_API_TOKEN}`;
-      
-      console.log('Typeahead request URL:', requestUrl);
       console.log('Searching for:', query);
       
-      const response = await fetch(requestUrl);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Typeahead API error:', response.status, errorText);
-        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      console.log('Raw typeahead response for "' + query + '":', data);
+      const suggestions = await zillowService.getAddressSuggestions(query);
+      console.log('Zillow suggestions:', suggestions);
       
-      // Let's also try to see if any CA results show up at all
-      if (data && data.parcel_centroids && data.parcel_centroids.features) {
-        console.log('Found features:', data.parcel_centroids.features.length);
-        data.parcel_centroids.features.forEach((feature, index) => {
-          console.log(`${index}: ${feature.properties.address} - ${feature.properties.context}`);
-        });
-      }
+      let formattedSuggestions = [];
+      let errorMessage = '';
       
-      // Handle the correct response format from the docs
-      if (data && data.parcel_centroids && data.parcel_centroids.features) {
-        // Filter out duplicates by ll_uuid as mentioned in docs
-        const uniqueFeatures = [];
-        const seenUuids = new Set();
-        
-        for (const feature of data.parcel_centroids.features) {
-          const uuid = feature.properties.ll_uuid;
-          if (!seenUuids.has(uuid)) {
-            seenUuids.add(uuid);
-            uniqueFeatures.push(feature);
-          }
-        }
-        
-        const formattedSuggestions = uniqueFeatures.map((feature, index) => ({
-          address: feature.properties.address || '',
-          ll_uuid: feature.properties.ll_uuid,
-          path: feature.properties.path,
-          context: feature.properties.context || '',
-          score: feature.properties.score || 0,
-          geometry: feature.geometry,
-          parcel: feature,
-          // Use index as backup key to ensure uniqueness
-          uniqueKey: `${feature.properties.ll_uuid}_${index}`
+      if (suggestions && suggestions.length > 0) {
+        formattedSuggestions = suggestions.map((suggestion, index) => ({
+          address: suggestion.address,
+          zpid: suggestion.zpid,
+          ll_uuid: suggestion.zpid, // Use zpid as unique identifier for compatibility
+          context: `${suggestion.city}, ${suggestion.state}`,
+          latitude: suggestion.latitude,
+          longitude: suggestion.longitude,
+          geometry: suggestion.geometry,
+          properties: suggestion.properties,
+          uniqueKey: `${suggestion.zpid}_${index}`
         }));
         
-        setSuggestions(formattedSuggestions.slice(0, 8)); // Limit to 8 results
+        setSuggestions(formattedSuggestions);
       } else {
         setSuggestions([]);
       }
+
+      // Cache the results
+      lastResults.current[query] = {
+        suggestions: formattedSuggestions,
+        error: errorMessage
+      };
       
     } catch (error) {
       console.error('Error fetching suggestions:', error);
-      setError(`Search error: ${error.message}`);
+      let errorMessage = '';
+      if (error.message && error.message.includes('Rate limit')) {
+        errorMessage = 'Rate limit reached. Please wait a moment before searching again.';
+      } else {
+        errorMessage = `Search error: ${error.message}`;
+      }
+      setError(errorMessage);
       setSuggestions([]);
-      
-      // Try a direct path lookup if it looks like we're searching for that specific address
-      if (query.toLowerCase().includes('11053') && query.toLowerCase().includes('kayjay')) {
-        try {
-          console.log('Trying direct parcel path lookup for Kayjay St...');
-          const directResponse = await fetch(
-            `${REGRID_BASE_URL}/parcels/443207?token=${REGRID_API_TOKEN}`
-          );
-          
-          if (directResponse.ok) {
-            const directData = await directResponse.json();
-            console.log('Direct parcel lookup result:', directData);
-            
-            if (directData && directData.parcels && directData.parcels.features) {
-              const directSuggestion = directData.parcels.features[0];
-              const formattedDirect = [{
-                address: directSuggestion.properties.headline || '11053 Kayjay St',
-                ll_uuid: directSuggestion.properties.ll_uuid,
-                path: directSuggestion.properties.path,
-                context: 'Corona, CA',
-                score: 100,
-                geometry: directSuggestion.geometry,
-                parcel: directSuggestion,
-                uniqueKey: 'direct_kayjay_lookup'
-              }];
-              
-              setSuggestions(formattedDirect);
-              setError('');
-              return; // Exit early if we found it
-            }
-          }
-        } catch (directError) {
-          console.log('Direct lookup failed:', directError);
-        }
-      }
-      
-      // Try fallback to address search if typeahead completely fails
-      try {
-        const fallbackQuery = encodeURIComponent(query);
-        const addressResponse = await fetch(
-          `${REGRID_BASE_URL}/parcels/address?query=${fallbackQuery}&token=${REGRID_API_TOKEN}&limit=8`
-        );
-        
-        if (addressResponse.ok) {
-          const addressData = await addressResponse.json();
-          
-          if (addressData.parcels && addressData.parcels.features) {
-            const fallbackSuggestions = addressData.parcels.features.map((feature, index) => ({
-              address: feature.properties.headline || feature.properties.fields?.address || '',
-              ll_uuid: feature.properties.fields?.ll_uuid || feature.properties.ll_uuid,
-              path: feature.properties.path,
-              context: feature.properties.context?.name || '',
-              score: 80, // Default score for fallback
-              geometry: feature.geometry,
-              parcel: feature,
-              uniqueKey: `fallback_${feature.properties.ll_uuid || index}_${index}`
-            }));
-            
-            setSuggestions(fallbackSuggestions.slice(0, 6)); // Even more conservative for fallback
-            setError(''); // Clear error if fallback worked
-          }
-        }
-      } catch (fallbackError) {
-        // Silent fail for fallback
-      }
-      
+
+      // Cache the error result too
+      lastResults.current[query] = {
+        suggestions: [],
+        error: errorMessage
+      };
     } finally {
       setIsLoading(false);
     }
@@ -188,6 +127,13 @@ const AddressAutocomplete = ({
     setShowSuggestions(true);
     setSelectedIndex(-1);
 
+    // Show typing indicator for immediate feedback
+    if (newValue.length >= 3) {
+      setIsTyping(true);
+    } else {
+      setIsTyping(false);
+    }
+
     // Clear existing timer
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current);
@@ -195,18 +141,28 @@ const AddressAutocomplete = ({
 
     // Set new timer for debounced search
     debounceTimer.current = setTimeout(() => {
+      setIsTyping(false); // Hide typing indicator
       fetchSuggestions(newValue);
-    }, 300);
+    }, 600); // 600ms for better UX while still reducing API calls
   };
 
   // Handle suggestion selection
   const handleSelectSuggestion = (suggestion) => {
-    setInputValue(suggestion.address);
+    const fullAddress = suggestion.address;
+    setInputValue(fullAddress);
     setShowSuggestions(false);
-    setSuggestions([]);
     setSelectedIndex(-1);
     
-    if (onChange) onChange(suggestion.address);
+    // Cache the selected address so it shows up when user focuses back
+    lastResults.current[fullAddress] = {
+      suggestions: [suggestion], // Keep the selected suggestion available
+      error: ''
+    };
+    
+    // Keep the suggestion in the suggestions state for immediate display
+    setSuggestions([suggestion]);
+    
+    if (onChange) onChange(fullAddress);
     if (onSelect) onSelect(suggestion);
   };
 
@@ -249,19 +205,36 @@ const AddressAutocomplete = ({
           value={inputValue}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
-          onFocus={() => inputValue.length >= 3 && setShowSuggestions(true)}
+          onFocus={() => {
+            if (inputValue.length >= 3) {
+              setShowSuggestions(true);
+              // Restore cached results if available
+              if (lastResults.current[inputValue]) {
+                setSuggestions(lastResults.current[inputValue].suggestions);
+                setError(lastResults.current[inputValue].error || '');
+              } else {
+                // If no cache exists, trigger a search for the current input
+                fetchSuggestions(inputValue);
+              }
+            }
+          }}
           placeholder={placeholder}
           required={required}
           className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${className}`}
           autoComplete="off"
         />
         
-        {isLoading && (
+        {(isLoading || isTyping) && (
           <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-            <svg className="animate-spin h-4 w-4 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
+            <div className="flex items-center space-x-1">
+              <svg className="animate-spin h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <span className="text-xs text-blue-500 font-medium">
+                {isLoading ? 'Searching...' : 'Typing...'}
+              </span>
+            </div>
           </div>
         )}
       </div>

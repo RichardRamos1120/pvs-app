@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import RegridService from '../services/regridService';
+import ZillowService from '../services/zillowService';
 import AddressAutocomplete from './AddressAutocomplete';
 
 const NeighborLookup = ({ onNeighborsFound }) => {
@@ -15,7 +15,7 @@ const NeighborLookup = ({ onNeighborsFound }) => {
     maxResults: 8  // Reduced to save API calls
   });
 
-  const regridService = new RegridService();
+  const zillowService = new ZillowService();
 
   const handleAddressSelect = (suggestion) => {
     setSelectedAddress(suggestion);
@@ -37,20 +37,13 @@ const NeighborLookup = ({ onNeighborsFound }) => {
     try {
       let neighborData;
       
-      // If we have a selected address with coordinates from the autocomplete, use those directly
-      if (selectedAddress && selectedAddress.geometry) {
-        // Use coordinates from typeahead response (Point geometry)
-        const coords = selectedAddress.geometry.coordinates; // [lon, lat] format
-        const lat = coords[1];
-        const lon = coords[0];
+      // Use the selected address to find neighbors
+      if (selectedAddress && selectedAddress.zpid) {
+        console.log(`Searching neighbors for: ${selectedAddress.address} (zpid: ${selectedAddress.zpid})`);
         
-        console.log(`Using coordinates from typeahead: ${lat}, ${lon}`);
-        
-        // Use direct coordinate search which avoids the 403 error
-        neighborData = await regridService.getNeighborsByCoordinates(lat, lon, {
-          ...searchOptions,
-          targetAddress: selectedAddress.address,
-          targetParcel: selectedAddress.parcel
+        // Use Zillow service to find neighbors using the property object
+        neighborData = await zillowService.getNeighborsByAddress(selectedAddress, {
+          ...searchOptions
         });
       } else {
         throw new Error('Please select an address from the autocomplete suggestions first');
@@ -71,9 +64,9 @@ const NeighborLookup = ({ onNeighborsFound }) => {
 
   const handleNeighborSelect = (neighbor) => {
     setSelectedNeighbors(prev => {
-      const isSelected = prev.some(n => n.ll_uuid === neighbor.ll_uuid);
+      const isSelected = prev.some(n => n.zpid === neighbor.zpid);
       if (isSelected) {
-        return prev.filter(n => n.ll_uuid !== neighbor.ll_uuid);
+        return prev.filter(n => n.zpid !== neighbor.zpid);
       }
       return [...prev, neighbor];
     });
@@ -87,6 +80,7 @@ const NeighborLookup = ({ onNeighborsFound }) => {
 
   const getCategoryLabel = (category) => {
     const labels = {
+      target: 'Target Property',
       immediate: 'Immediate Neighbor',
       across: 'Across the Street',
       adjacent: 'Adjacent',
@@ -98,6 +92,7 @@ const NeighborLookup = ({ onNeighborsFound }) => {
 
   const getCategoryColor = (category) => {
     const colors = {
+      target: 'bg-red-100 text-red-800',
       immediate: 'bg-green-100 text-green-800',
       across: 'bg-blue-100 text-blue-800',
       adjacent: 'bg-yellow-100 text-yellow-800',
@@ -120,7 +115,7 @@ const NeighborLookup = ({ onNeighborsFound }) => {
             value={address}
             onChange={setAddress}
             onSelect={handleAddressSelect}
-            placeholder="Start typing an address (e.g., 1600 Pennsylvania...)"
+            placeholder="Start typing an address (e.g., 12436 Oberlin Dr, Dallas, TX...)"
             className=""
           />
           <p className="text-xs text-gray-500 mt-1">
@@ -193,8 +188,64 @@ const NeighborLookup = ({ onNeighborsFound }) => {
         {results && (
           <div className="mt-6">
             <div className="mb-4">
-              <h4 className="font-semibold text-lg">Target Property:</h4>
-              <p className="text-gray-700">{results.targetAddress}</p>
+              <div className="flex justify-between items-start">
+                <div>
+                  <h4 className="font-semibold text-lg">Target Property:</h4>
+                  <p className="text-gray-700">{results.targetAddress}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    if (results.targetProperty) {
+                      // Create a neighbor-like object for the target property
+                      const targetAsNeighbor = {
+                        address: results.targetAddress,
+                        zpid: results.targetProperty.zpid,
+                        latitude: results.targetProperty.latitude,
+                        longitude: results.targetProperty.longitude,
+                        distance: 0,
+                        direction: 'Target',
+                        category: 'target',
+                        bedrooms: results.targetProperty.bedrooms || null,
+                        bathrooms: results.targetProperty.bathrooms || null,
+                        livingArea: results.targetProperty.livingArea || results.targetProperty.livingAreaValue || null,
+                        lotSize: results.targetProperty.lotSize || null,
+                        yearBuilt: results.targetProperty.yearBuilt || null,
+                        homeType: results.targetProperty.homeType || null,
+                        price: results.targetProperty.price || null,
+                        zestimate: results.targetProperty.zestimate || null,
+                        homeStatus: results.targetProperty.homeStatus || null,
+                        fields: {
+                          ll_uuid: results.targetProperty.zpid,
+                          bedrooms: results.targetProperty.bedrooms,
+                          bathrooms: results.targetProperty.bathrooms,
+                          living_area: results.targetProperty.livingArea || results.targetProperty.livingAreaValue,
+                          lot_size: results.targetProperty.lotSize,
+                          year_built: results.targetProperty.yearBuilt,
+                          home_type: results.targetProperty.homeType,
+                          price: results.targetProperty.price,
+                          zestimate: results.targetProperty.zestimate,
+                          home_status: results.targetProperty.homeStatus
+                        }
+                      };
+                      
+                      setSelectedNeighbors(prev => {
+                        const isSelected = prev.some(n => n.zpid === results.targetProperty.zpid);
+                        if (isSelected) {
+                          return prev.filter(n => n.zpid !== results.targetProperty.zpid);
+                        }
+                        return [...prev, targetAsNeighbor];
+                      });
+                    }
+                  }}
+                  className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                    selectedNeighbors.some(n => n.zpid === results.targetProperty?.zpid)
+                      ? 'bg-green-600 text-white'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  {selectedNeighbors.some(n => n.zpid === results.targetProperty?.zpid) ? 'Added' : 'Add Target'}
+                </button>
+              </div>
             </div>
 
             {results.neighbors.length > 0 && (
@@ -216,9 +267,9 @@ const NeighborLookup = ({ onNeighborsFound }) => {
                 <div className="space-y-3 max-h-96 overflow-y-auto">
                   {results.neighbors.map((neighbor, index) => (
                     <div
-                      key={neighbor.ll_uuid || index}
+                      key={neighbor.zpid || index}
                       className={`border rounded-lg p-4 cursor-pointer transition-all ${
-                        selectedNeighbors.some(n => n.ll_uuid === neighbor.ll_uuid)
+                        selectedNeighbors.some(n => n.zpid === neighbor.zpid)
                           ? 'border-blue-500 bg-blue-50'
                           : 'border-gray-200 hover:border-gray-300'
                       }`}
@@ -229,7 +280,7 @@ const NeighborLookup = ({ onNeighborsFound }) => {
                           <div className="flex items-center gap-2 mb-2">
                             <input
                               type="checkbox"
-                              checked={selectedNeighbors.some(n => n.ll_uuid === neighbor.ll_uuid)}
+                              checked={selectedNeighbors.some(n => n.zpid === neighbor.zpid)}
                               onChange={() => {}}
                               className="mr-2"
                             />
@@ -243,9 +294,19 @@ const NeighborLookup = ({ onNeighborsFound }) => {
                             <span className="text-gray-600">
                               {neighbor.distance}m {neighbor.direction}
                             </span>
-                            {neighbor.owner && (
+                            {neighbor.price && (
+                              <span className="text-green-600 font-medium">
+                                ${neighbor.price.toLocaleString()}
+                              </span>
+                            )}
+                            {neighbor.bedrooms && neighbor.bathrooms && (
                               <span className="text-gray-600">
-                                Owner: {neighbor.owner}
+                                {neighbor.bedrooms}bd {neighbor.bathrooms}ba
+                              </span>
+                            )}
+                            {neighbor.livingArea && (
+                              <span className="text-gray-600">
+                                {neighbor.livingArea} sqft
                               </span>
                             )}
                           </div>

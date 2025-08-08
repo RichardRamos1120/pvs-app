@@ -8,7 +8,9 @@
       "WebFetch(domain:attomdata.com)",
       "Bash(pkill:*)",
       "Bash(true)",
-      "WebFetch(domain:app.regrid.com)"
+      "WebFetch(domain:app.regrid.com)",
+      "WebFetch(domain:rapidapi.com)",
+      "WebFetch(domain:zillow-com1.p.rapidapi.com)"
     ],
     "deny": []
   }
