@@ -102,10 +102,34 @@ class ZillowService {
       // Get detailed property info which includes nearby homes
       const propertyDetails = await this.getPropertyDetails(targetProperty.zpid);
       
+      // Validate year built data for target property
+      let targetYearBuilt = propertyDetails.yearBuilt || targetProperty.yearBuilt;
+      if (targetYearBuilt) {
+        const currentYear = new Date().getFullYear();
+        if (targetYearBuilt > currentYear || targetYearBuilt < 1800) {
+          console.warn(`Invalid yearBuilt for target property: ${targetYearBuilt}. Setting to null.`);
+          targetYearBuilt = null;
+        }
+      }
+
+      // Merge detailed property info with target property
+      const enrichedTargetProperty = {
+        ...targetProperty,
+        // Add detailed info from property details API
+        zestimate: propertyDetails.zestimate || targetProperty.zestimate,
+        price: propertyDetails.price || targetProperty.price,
+        bedrooms: propertyDetails.bedrooms || targetProperty.bedrooms,
+        bathrooms: propertyDetails.bathrooms || targetProperty.bathrooms,
+        livingArea: propertyDetails.livingArea || propertyDetails.livingAreaValue || targetProperty.livingArea || targetProperty.livingAreaValue,
+        yearBuilt: targetYearBuilt,
+        homeType: propertyDetails.homeType || targetProperty.homeType,
+        homeStatus: propertyDetails.homeStatus || targetProperty.homeStatus
+      };
+      
       if (!propertyDetails.nearbyHomes) {
         return {
-          targetAddress: targetProperty.address || 'Selected Property',
-          targetProperty: targetProperty,
+          targetAddress: enrichedTargetProperty.address || 'Selected Property',
+          targetProperty: enrichedTargetProperty,
           neighbors: [],
           categorized: {
             immediate: [],
@@ -119,15 +143,15 @@ class ZillowService {
       // Process nearby homes into our expected format
       const neighbors = propertyDetails.nearbyHomes.map(home => {
         const distance = this.calculateDistance(
-          targetProperty.latitude, 
-          targetProperty.longitude,
+          enrichedTargetProperty.latitude, 
+          enrichedTargetProperty.longitude,
           home.latitude, 
           home.longitude
         );
 
         const direction = this.calculateDirection(
-          targetProperty.latitude,
-          targetProperty.longitude,
+          enrichedTargetProperty.latitude,
+          enrichedTargetProperty.longitude,
           home.latitude,
           home.longitude
         );
@@ -148,6 +172,17 @@ class ZillowService {
           fullAddress = `Property ${home.zpid}`;
         }
 
+        // Validate and fix year built data
+        let validatedYearBuilt = home.yearBuilt;
+        if (validatedYearBuilt) {
+          const currentYear = new Date().getFullYear();
+          // If year is unrealistic (future or too old), log it and set to null
+          if (validatedYearBuilt > currentYear || validatedYearBuilt < 1800) {
+            console.warn(`Invalid yearBuilt for ${fullAddress}: ${validatedYearBuilt}. Setting to null.`);
+            validatedYearBuilt = null;
+          }
+        }
+
         return {
           address: fullAddress,
           zpid: home.zpid,
@@ -155,14 +190,14 @@ class ZillowService {
           longitude: home.longitude,
           distance: Math.round(distance),
           direction: direction,
-          category: this.categorizeNeighbor(distance, targetProperty.address, fullAddress, direction),
+          category: this.categorizeNeighbor(distance, enrichedTargetProperty.address, fullAddress, direction),
           
           // Property details
           bedrooms: home.bedrooms || null,
           bathrooms: home.bathrooms || null,
           livingArea: home.livingAreaValue || null,
           lotSize: home.lotSize || null,
-          yearBuilt: home.yearBuilt || null,
+          yearBuilt: validatedYearBuilt,
           homeType: home.homeType || null,
           price: home.price || null,
           zestimate: home.zestimate || null,
@@ -209,8 +244,8 @@ class ZillowService {
       };
 
       return {
-        targetAddress: targetProperty.address || 'Selected Property',
-        targetProperty: targetProperty,
+        targetAddress: enrichedTargetProperty.address || 'Selected Property',
+        targetProperty: enrichedTargetProperty,
         neighbors: limitedNeighbors,
         categorized: categorized
       };

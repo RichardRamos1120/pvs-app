@@ -33,6 +33,7 @@ const PVSCalculator = () => {
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [bulkUploadResults, setBulkUploadResults] = useState(null);
   const [showNeighborLookup, setShowNeighborLookup] = useState(false);
+  const [editingProperty, setEditingProperty] = useState(null); // Track which property is being edited
   
   // Constants
   const VSL = 7000000; // Value of Statistical Life: $7 million
@@ -94,6 +95,12 @@ const PVSCalculator = () => {
   
   // Calculate FIRIS property value
   const calculateFIRISValue = (propertyData) => {
+    // Check if we have required data for FIRIS calculation
+    if (!propertyData.squareFootage || !propertyData.yearBuilt) {
+      // Return null to indicate calculation not possible
+      return null;
+    }
+    
     const currentYear = new Date().getFullYear();
     const age = currentYear - parseInt(propertyData.yearBuilt);
     
@@ -170,39 +177,103 @@ const PVSCalculator = () => {
     setProperties(newProperties);
   };
 
+  // Update property with inline edits
+  const updateProperty = (index, field, value) => {
+    const newProperties = [...properties];
+    newProperties[index] = { ...newProperties[index], [field]: value };
+    
+    // Recalculate FIRIS value if we now have complete data
+    if (field === 'yearBuilt' || field === 'squareFootage') {
+      const updatedProperty = newProperties[index];
+      if (updatedProperty.yearBuilt && updatedProperty.squareFootage) {
+        const newValue = calculateFIRISValue(updatedProperty);
+        newProperties[index].value = newValue;
+      }
+    }
+    
+    setProperties(newProperties);
+  };
+
   // Handle neighbors found from neighbor lookup
   const handleNeighborsFound = (neighbors) => {
     const newProperties = neighbors.map(neighbor => {
-      // Extract real property data from Regrid fields
-      const fields = neighbor.fields || {};
+      console.log('Processing neighbor from Zillow:', neighbor.address);
+      console.log('Available Zillow data:', {
+        price: neighbor.price,
+        zestimate: neighbor.zestimate,
+        livingArea: neighbor.livingArea,
+        yearBuilt: neighbor.yearBuilt,
+        bedrooms: neighbor.bedrooms,
+        bathrooms: neighbor.bathrooms
+      });
       
-      // Log the available data for debugging - expand full object
-      console.log('Full neighbor data for:', neighbor.address);
-      console.log('All fields:', JSON.stringify(fields, null, 2));
+      // Use real Zillow building data for accurate FIRIS calculation
+      const hasRealZillowData = neighbor.price || neighbor.zestimate || neighbor.livingArea;
       
-      // Use real data when available, fallback to reasonable defaults
-      const property = {
-        address: neighbor.address,
-        incidentId: '',
-        propertyType: fields.usecode ? mapUseCodeToPropertyType(fields.usecode) : 'residential',
-        structureType: 'single_family', // Default, could be enhanced with more mapping
-        yearBuilt: fields.yearbuilt || fields.yearbuilt1 || estimateYearBuilt(neighbor.address),
-        squareFootage: fields.sqft || fields.improvement_value ? estimateSquareFootage(fields.improvement_value) : estimateSquareFootageByAddress(neighbor.address),
-        stories: fields.stories || estimateStories(fields.sqft),
-        constructionType: fields.construction_type || 'wood_frame',
-        roofType: 'composition', // Default
-        exteriorWalls: 'wood_siding', // Default  
-        condition: fields.condition || estimateCondition(fields.yearbuilt),
-        localMultiplier: '1.0'
-      };
-      
-      const value = calculateFIRISValue(property);
-      
-      return {
-        ...property,
-        value,
-        id: Date.now() + Math.random()
-      };
+      if (hasRealZillowData) {
+        // Check what data is actually available from Zillow
+        const hasYearBuilt = neighbor.yearBuilt && neighbor.yearBuilt !== null;
+        const hasSquareFootage = neighbor.livingArea && neighbor.livingArea > 0;
+        
+        // Use Zillow building data for accurate FIRIS inputs
+        const property = {
+          address: neighbor.address,
+          incidentId: '',
+          propertyType: 'residential',
+          structureType: 'single_family',
+          yearBuilt: hasYearBuilt ? neighbor.yearBuilt.toString() : null, // Don't fake missing data
+          squareFootage: hasSquareFootage ? neighbor.livingArea.toString() : null, // Don't fake missing data
+          stories: '1',
+          constructionType: 'wood_frame',
+          roofType: 'composition',
+          exteriorWalls: 'wood_siding',
+          condition: 'good',
+          localMultiplier: '1.0',
+          // Store the real market data for display
+          marketPrice: neighbor.price,
+          zestimate: neighbor.zestimate,
+          dataSource: 'zillow', // Flag to identify this came from real data
+          // Track what data is missing for transparency
+          missingYearBuilt: !hasYearBuilt,
+          missingSquareFootage: !hasSquareFootage
+        };
+        
+        // Calculate FIRIS replacement cost using accurate Zillow building data
+        const value = calculateFIRISValue(property);
+        
+        return {
+          ...property,
+          value: value, // Can be null if calculation not possible
+          id: Date.now() + Math.random()
+        };
+      } else {
+        // Fallback to FIRIS calculation if no real data available
+        const fields = neighbor.fields || {};
+        
+        const property = {
+          address: neighbor.address,
+          incidentId: '',
+          propertyType: fields.usecode ? mapUseCodeToPropertyType(fields.usecode) : 'residential',
+          structureType: 'single_family',
+          yearBuilt: fields.yearbuilt || fields.yearbuilt1 || estimateYearBuilt(neighbor.address),
+          squareFootage: fields.sqft || fields.improvement_value ? estimateSquareFootage(fields.improvement_value) : estimateSquareFootageByAddress(neighbor.address),
+          stories: fields.stories || estimateStories(fields.sqft),
+          constructionType: fields.construction_type || 'wood_frame',
+          roofType: 'composition',
+          exteriorWalls: 'wood_siding',
+          condition: fields.condition || estimateCondition(fields.yearbuilt),
+          localMultiplier: '1.0',
+          dataSource: 'firis' // Flag to identify this was estimated
+        };
+        
+        const value = calculateFIRISValue(property);
+        
+        return {
+          ...property,
+          value,
+          id: Date.now() + Math.random()
+        };
+      }
     });
     
     setProperties([...properties, ...newProperties]);
@@ -429,8 +500,8 @@ const PVSCalculator = () => {
   const calculatePVS = () => {
     if (!livesSaved || !budget || properties.length === 0) return;
     
-    // Calculate total property value
-    const totalPropertyValue = properties.reduce((sum, property) => sum + property.value, 0);
+    // Calculate total property value (exclude properties with missing data)
+    const totalPropertyValue = properties.reduce((sum, property) => sum + (property.value || 0), 0);
     
     // Calculate lives saved value
     const livesSavedValue = parseInt(livesSaved) * VSL;
@@ -903,6 +974,18 @@ const PVSCalculator = () => {
           {/* Property list */}
           {properties.length > 0 ? (
             <div className="mb-5 overflow-x-auto">
+              {properties.some(p => !p.squareFootage || !p.yearBuilt) && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="flex items-center">
+                    <svg className="h-5 w-5 text-amber-500 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                    <span className="text-sm font-medium text-amber-800">
+                      Action Required: Complete missing building data in red-highlighted fields below for accurate FIRIS calculations
+                    </span>
+                  </div>
+                </div>
+              )}
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="bg-gray-100">
@@ -925,13 +1008,176 @@ const PVSCalculator = () => {
                         {property.propertyType} / {property.structureType.replace('_', ' ')}
                       </td>
                       <td className="p-3 text-center border-b border-gray-200 text-sm">
-                        {parseInt(property.squareFootage).toLocaleString()}
+                        {property.squareFootage ? (
+                          editingProperty?.index === index && editingProperty?.field === 'squareFootage' ? (
+                            <input
+                              type="number"
+                              defaultValue={editingProperty.value}
+                              placeholder="Enter sq ft"
+                              className="w-full px-2 py-1 text-sm border border-blue-300 rounded bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              onBlur={(e) => {
+                                if (e.target.value) {
+                                  updateProperty(index, 'squareFootage', e.target.value);
+                                }
+                                setEditingProperty(null);
+                              }}
+                              onKeyPress={(e) => {
+                                if (e.key === 'Enter') {
+                                  if (e.target.value) {
+                                    updateProperty(index, 'squareFootage', e.target.value);
+                                  }
+                                  setEditingProperty(null);
+                                }
+                              }}
+                              autoFocus
+                              min="100"
+                              max="50000"
+                            />
+                          ) : (
+                            <div className="flex items-center justify-center">
+                              <span>{parseInt(property.squareFootage).toLocaleString()}</span>
+                              <button 
+                                onClick={() => setEditingProperty({index, field: 'squareFootage', value: property.squareFootage})}
+                                className="ml-2 p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded"
+                                title="Edit square footage"
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                              </button>
+                            </div>
+                          )
+                        ) : editingProperty?.index === index && editingProperty?.field === 'squareFootage' ? (
+                          <input
+                            type="number"
+                            defaultValue={editingProperty.value}
+                            placeholder="Enter sq ft"
+                            className="w-full px-2 py-1 text-sm border border-red-300 rounded bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500"
+                            onBlur={(e) => {
+                              if (e.target.value) {
+                                updateProperty(index, 'squareFootage', e.target.value);
+                              }
+                              setEditingProperty(null);
+                            }}
+                            onKeyPress={(e) => {
+                              if (e.key === 'Enter') {
+                                if (e.target.value) {
+                                  updateProperty(index, 'squareFootage', e.target.value);
+                                }
+                                setEditingProperty(null);
+                              }
+                            }}
+                            autoFocus
+                            min="100"
+                            max="50000"
+                          />
+                        ) : (
+                          <button
+                            onClick={() => setEditingProperty({index, field: 'squareFootage', value: ''})}
+                            className="w-full px-2 py-1 text-sm border border-red-300 rounded bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500"
+                          >
+                            Enter sq ft
+                          </button>
+                        )}
+                        {!property.squareFootage && (
+                          <div className="text-xs text-red-600 mt-1">Required for FIRIS</div>
+                        )}
                       </td>
                       <td className="p-3 text-center border-b border-gray-200 text-sm">
-                        {property.yearBuilt}
+                        {property.yearBuilt ? (
+                          editingProperty?.index === index && editingProperty?.field === 'yearBuilt' ? (
+                            <input
+                              type="number"
+                              defaultValue={editingProperty.value}
+                              placeholder="Enter year"
+                              className="w-full px-2 py-1 text-sm border border-blue-300 rounded bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              onBlur={(e) => {
+                                if (e.target.value) {
+                                  updateProperty(index, 'yearBuilt', e.target.value);
+                                }
+                                setEditingProperty(null);
+                              }}
+                              onKeyPress={(e) => {
+                                if (e.key === 'Enter') {
+                                  if (e.target.value) {
+                                    updateProperty(index, 'yearBuilt', e.target.value);
+                                  }
+                                  setEditingProperty(null);
+                                }
+                              }}
+                              autoFocus
+                              min="1800"
+                              max="2025"
+                            />
+                          ) : (
+                            <div className="flex items-center justify-center">
+                              <span>{property.yearBuilt}</span>
+                              <button 
+                                onClick={() => setEditingProperty({index, field: 'yearBuilt', value: property.yearBuilt})}
+                                className="ml-2 p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded"
+                                title="Edit year built"
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                              </button>
+                            </div>
+                          )
+                        ) : editingProperty?.index === index && editingProperty?.field === 'yearBuilt' ? (
+                          <input
+                            type="number"
+                            defaultValue={editingProperty.value}
+                            placeholder="Enter year"
+                            className="w-full px-2 py-1 text-sm border border-red-300 rounded bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500"
+                            onBlur={(e) => {
+                              if (e.target.value) {
+                                updateProperty(index, 'yearBuilt', e.target.value);
+                              }
+                              setEditingProperty(null);
+                            }}
+                            onKeyPress={(e) => {
+                              if (e.key === 'Enter') {
+                                if (e.target.value) {
+                                  updateProperty(index, 'yearBuilt', e.target.value);
+                                }
+                                setEditingProperty(null);
+                              }
+                            }}
+                            autoFocus
+                            min="1800"
+                            max="2025"
+                          />
+                        ) : (
+                          <button
+                            onClick={() => setEditingProperty({index, field: 'yearBuilt', value: ''})}
+                            className="w-full px-2 py-1 text-sm border border-red-300 rounded bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500"
+                          >
+                            Enter year
+                          </button>
+                        )}
+                        {!property.yearBuilt && (
+                          <div className="text-xs text-red-600 mt-1">Required for FIRIS</div>
+                        )}
                       </td>
                       <td className="p-3 text-right border-b border-gray-200 text-sm font-bold">
-                        {formatCurrency(property.value)}
+                        {property.value ? formatCurrency(property.value) : 
+                         <span className="text-gray-400 italic">Cannot calculate - missing data</span>}
+                        <div className="text-xs text-gray-500 mt-1">
+                          <span className="text-blue-600">FIRIS Estimate</span>
+                          {property.dataSource === 'zillow' && (property.marketPrice || property.zestimate) && (
+                            <div className="text-green-600 mt-1">
+                              {property.marketPrice ? 
+                                `Market: ${formatCurrency(property.marketPrice)}` : 
+                                `Zestimate: ${formatCurrency(property.zestimate)}`
+                              }
+                            </div>
+                          )}
+                          {property.dataSource === 'zillow' && (
+                            <div className="text-xs text-gray-400 mt-1">
+                              Data source: Zillow
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="p-3 text-center border-b border-gray-200">
                         <button
@@ -946,9 +1192,16 @@ const PVSCalculator = () => {
                 </tbody>
                 <tfoot>
                   <tr className="bg-gray-100">
-                    <td colSpan={4} className="p-3 font-bold">Total Replacement Value Preserved</td>
+                    <td colSpan={4} className="p-3 font-bold">
+                      Total Replacement Value Preserved
+                      {properties.some(p => !p.value) && (
+                        <div className="text-xs text-gray-500 font-normal">
+                          *Excludes properties with missing data
+                        </div>
+                      )}
+                    </td>
                     <td className="p-3 text-right font-bold text-base text-blue-600">
-                      {formatCurrency(properties.reduce((sum, property) => sum + property.value, 0))}
+                      {formatCurrency(properties.reduce((sum, property) => sum + (property.value || 0), 0))}
                     </td>
                     <td></td>
                   </tr>
@@ -964,6 +1217,34 @@ const PVSCalculator = () => {
             </div>
           )}
           
+          {/* Data Validation Warning */}
+          {properties.length > 0 && properties.some(p => !p.squareFootage || !p.yearBuilt) && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-red-800">
+                    Missing Required Data - Cannot Proceed to PVS Calculation
+                  </h3>
+                  <div className="mt-2 text-sm text-red-700">
+                    <p>FIRIS replacement cost calculations require complete building data. Please either:</p>
+                    <ul className="list-disc list-inside mt-2 space-y-1">
+                      <li><strong>Enter missing data</strong> in the red-highlighted fields above, or</li>
+                      <li><strong>Remove properties</strong> with incomplete data from the list</li>
+                    </ul>
+                    <p className="mt-2 font-medium">
+                      Properties missing data: {properties.filter(p => !p.squareFootage || !p.yearBuilt).length} of {properties.length}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-between">
             <button
               onClick={() => setStep(1)}
@@ -972,15 +1253,19 @@ const PVSCalculator = () => {
               Back
             </button>
             <button
-              onClick={() => properties.length > 0 && setStep(3)}
-              disabled={properties.length === 0}
+              onClick={() => {
+                const canProceed = properties.length > 0 && properties.every(p => p.squareFootage && p.yearBuilt);
+                if (canProceed) setStep(3);
+              }}
+              disabled={properties.length === 0 || properties.some(p => !p.squareFootage || !p.yearBuilt)}
               className={`px-5 py-2.5 rounded ${
-                properties.length > 0 
+                properties.length > 0 && properties.every(p => p.squareFootage && p.yearBuilt)
                   ? 'bg-blue-600 text-white cursor-pointer hover:bg-blue-700' 
                   : 'bg-gray-200 text-gray-500 cursor-not-allowed'
               }`}
             >
-              Next
+              {properties.length === 0 ? 'Add Properties First' : 
+               properties.some(p => !p.squareFootage || !p.yearBuilt) ? 'Complete Missing Data' : 'Next'}
             </button>
           </div>
         </div>
@@ -1109,6 +1394,19 @@ const PVSCalculator = () => {
           </div>
         </div>
       )}
+
+      {/* Data Transparency Footer */}
+      <div className="mt-8 pt-6 border-t border-gray-200">
+        <div className="bg-blue-50 rounded-lg p-4 text-sm text-gray-700">
+          <h4 className="font-semibold text-blue-800 mb-2">Data Sources & Methodology</h4>
+          <div className="space-y-1">
+            <p><strong>Property Values:</strong> Market data sourced from Zillow. Replacement costs calculated using FIRIS (Fire Insurance Rating Information System) emergency response standards.</p>
+            <p><strong>Market Estimates:</strong> Zillow Zestimate® is an automated valuation model (AVM) that estimates market value. Actual property values may vary.</p>
+            <p><strong>FIRIS Calculations:</strong> Based on construction type, square footage, age depreciation, condition factors, and local market multipliers per fire department standards.</p>
+            <p><strong>Disclaimer:</strong> All estimates are for informational and planning purposes only. Actual replacement costs and market values may differ. Property data accuracy depends on source availability and currency.</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
