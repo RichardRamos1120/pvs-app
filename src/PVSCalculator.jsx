@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import NeighborLookup from './components/NeighborLookup';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const PVSCalculator = () => {
   // State for the wizard steps
@@ -544,109 +546,335 @@ const PVSCalculator = () => {
     setEfficiency('0.90');
     setPvsScore(null);
   };
+
+  // Generate PDF Report
+  const generatePDFReport = () => {
+    if (!pvsScore) return;
+
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
+    const margin = 20;
+    const currentDate = new Date().toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+
+    // Header
+    doc.setFontSize(24);
+    doc.setFont(undefined, 'bold');
+    doc.text('Fire Department PVS Report', pageWidth / 2, 25, { align: 'center' });
+    
+    doc.setFontSize(12);
+    doc.setFont(undefined, 'normal');
+    doc.text('FIRIS Emergency Response Standards', pageWidth / 2, 35, { align: 'center' });
+    doc.text(`Report Generated: ${currentDate}`, pageWidth / 2, 42, { align: 'center' });
+
+    // Add a line separator
+    doc.setLineWidth(0.5);
+    doc.line(margin, 48, pageWidth - margin, 48);
+
+    // PVS Score Box - PROMINENTLY AT THE TOP
+    let yPosition = 60;
+    
+    // Draw a highlight box for PVS Score
+    doc.setFillColor(59, 130, 246); // Blue color
+    doc.setTextColor(255, 255, 255); // White text
+    doc.roundedRect(margin, yPosition - 10, pageWidth - 2 * margin, 30, 3, 3, 'F');
+    
+    doc.setFontSize(28);
+    doc.setFont(undefined, 'bold');
+    doc.text(`PVS SCORE: ${pvsScore.score}`, pageWidth / 2, yPosition + 5, { align: 'center' });
+    
+    doc.setFontSize(14);
+    doc.setFont(undefined, 'normal');
+    doc.text(`For every $1 spent, your department generates $${pvsScore.score} in societal value`, 
+             pageWidth / 2, yPosition + 15, { align: 'center' });
+    
+    // Reset text color
+    doc.setTextColor(0, 0, 0);
+    yPosition += 40;
+
+    // Executive Summary Section
+    doc.setFontSize(16);
+    doc.setFont(undefined, 'bold');
+    doc.text('Executive Summary', margin, yPosition);
+    yPosition += 10;
+
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'normal');
+    
+    const summaryData = [
+      ['Lives Saved', livesSaved],
+      ['Properties Protected', properties.length.toString()],
+      ['Annual Operating Budget', formatCurrency(pvsScore.budget)],
+      ['Efficiency Multiplier', pvsScore.efficiency],
+      ['Total Value Generated', formatCurrency(pvsScore.livesSavedValue + pvsScore.totalPropertyValue)]
+    ];
+
+    autoTable(doc, {
+      startY: yPosition,
+      head: [],
+      body: summaryData,
+      theme: 'plain',
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 60 },
+        1: { cellWidth: 'auto' }
+      },
+      margin: { left: margin, right: margin },
+      styles: { fontSize: 11 }
+    });
+
+    yPosition = doc.lastAutoTable.finalY + 15;
+
+    // Formula Breakdown
+    doc.setFontSize(16);
+    doc.setFont(undefined, 'bold');
+    doc.text('PVS Calculation Breakdown', margin, yPosition);
+    yPosition += 10;
+
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'normal');
+    
+    const formulaData = [
+      ['Lives Saved Value', `${livesSaved} lives × $7,000,000 VSL`, formatCurrency(pvsScore.livesSavedValue)],
+      ['Property Replacement Value', 'FIRIS Calculated', formatCurrency(pvsScore.totalPropertyValue)],
+      ['Total Value Preserved', '', formatCurrency(pvsScore.livesSavedValue + pvsScore.totalPropertyValue)],
+      ['Annual Operating Cost', '', formatCurrency(pvsScore.budget)],
+      ['Efficiency Multiplier', '', pvsScore.efficiency],
+      ['', '', ''],
+      ['PVS Score', '(Total Value / Budget) × Efficiency', pvsScore.score]
+    ];
+
+    autoTable(doc, {
+      startY: yPosition,
+      head: [['Component', 'Calculation', 'Value']],
+      body: formulaData,
+      theme: 'striped',
+      headStyles: { fillColor: [59, 130, 246], textColor: 255 },
+      columnStyles: {
+        0: { cellWidth: 60 },
+        1: { cellWidth: 70 },
+        2: { cellWidth: 'auto', halign: 'right', fontStyle: 'bold' }
+      },
+      margin: { left: margin, right: margin },
+      styles: { fontSize: 10 }
+    });
+
+    yPosition = doc.lastAutoTable.finalY + 15;
+
+    // Check if we need a new page for properties
+    if (yPosition > pageHeight - 100) {
+      doc.addPage();
+      yPosition = margin;
+    }
+
+    // Properties Table
+    doc.setFontSize(16);
+    doc.setFont(undefined, 'bold');
+    doc.text('Properties Protected - FIRIS Valuation', margin, yPosition);
+    yPosition += 10;
+
+    // Prepare properties data for table
+    const propertiesData = properties.map(property => {
+      const sqft = property.squareFootage ? parseInt(property.squareFootage).toLocaleString() : 'N/A';
+      const year = property.yearBuilt || 'N/A';
+      const firisValue = property.value ? formatCurrency(property.value) : 'N/A';
+      const marketValue = property.marketPrice ? formatCurrency(property.marketPrice) : 
+                         property.zestimate ? formatCurrency(property.zestimate) : 'N/A';
+      
+      return [
+        property.address,
+        sqft,
+        year,
+        firisValue,
+        marketValue
+      ];
+    });
+
+    // Add total row
+    const totalFIRIS = properties.reduce((sum, p) => sum + (p.value || 0), 0);
+    propertiesData.push([
+      'TOTAL',
+      '',
+      '',
+      formatCurrency(totalFIRIS),
+      ''
+    ]);
+
+    autoTable(doc, {
+      startY: yPosition,
+      head: [['Address', 'Sq Ft', 'Year', 'FIRIS Value', 'Market Value']],
+      body: propertiesData,
+      theme: 'grid',
+      headStyles: { fillColor: [59, 130, 246], textColor: 255 },
+      columnStyles: {
+        0: { cellWidth: 70 },
+        1: { cellWidth: 25, halign: 'center' },
+        2: { cellWidth: 20, halign: 'center' },
+        3: { cellWidth: 35, halign: 'right' },
+        4: { cellWidth: 35, halign: 'right' }
+      },
+      footStyles: { fontStyle: 'bold', fillColor: [240, 240, 240] },
+      margin: { left: margin, right: margin },
+      styles: { fontSize: 9 },
+      didDrawRow: (data) => {
+        // Bold the total row
+        if (data.row.index === propertiesData.length - 1) {
+          doc.setFont(undefined, 'bold');
+        }
+      }
+    });
+
+    // Add footer on last page
+    const finalY = doc.lastAutoTable.finalY;
+    const footerY = pageHeight - 30;
+    
+    // If there's space, add methodology note
+    if (finalY < footerY - 40) {
+      doc.setFontSize(9);
+      doc.setFont(undefined, 'italic');
+      doc.setTextColor(100, 100, 100);
+      doc.text('Methodology: FIRIS replacement costs calculated using construction type, square footage, age depreciation,', margin, footerY - 20);
+      doc.text('condition factors, and local market multipliers per fire department emergency response standards.', margin, footerY - 15);
+      doc.text('Market values sourced from Zillow. All estimates for planning purposes only.', margin, footerY - 10);
+    }
+
+    // Page numbers on all pages
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(9);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+    }
+
+    // Save the PDF
+    doc.save(`FIRIS_PVS_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
   
   return (
-    <div className="max-w-4xl mx-auto p-5">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold mb-2">
-          Fire Department PVS Calculator - FIRIS Method
-        </h1>
-        <p className="text-gray-600">
-          Calculate property replacement costs using FIRIS emergency response standards
-        </p>
-      </div>
-      
-      {/* Step indicator */}
-      <div className="flex justify-between mb-8">
-        {[1, 2, 3, 4].map((num) => (
-          <div key={num} className="flex flex-col items-center">
-            <div className={`w-9 h-9 rounded-full flex items-center justify-center mb-2 font-bold ${
-              step >= num ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
-            }`}>
-              {num}
-            </div>
-            <div className={`text-sm ${step >= num ? 'text-blue-600' : 'text-gray-500'}`}>
-              {num === 1 ? 'Lives Saved' : 
-               num === 2 ? 'Properties (FIRIS)' : 
-               num === 3 ? 'Budget & Efficiency' : 'Results'}
-            </div>
-          </div>
-        ))}
-      </div>
-      
-      {/* Step 1: Lives Saved */}
-      {step === 1 && (
-        <div className="border border-gray-200 rounded-lg p-6">
-          <h2 className="text-xl font-bold mb-5">Step 1: Lives Saved</h2>
-          
-          <div className="mb-5">
-            <label className="block font-bold mb-2">
-              Number of Lives Saved
-            </label>
-            <p className="text-sm text-gray-500 mb-2">
-              How many individuals survived due to EMS intervention when vitals were outside survivable range
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="text-center mb-12">
+          <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
+            Fire Department PVS Calculator
+          </h1>
+          <div className="max-w-3xl mx-auto">
+            <p className="text-xl text-gray-600 mb-2">
+              FIRIS Emergency Response Standards
             </p>
-            <input
-              type="number"
-              value={livesSaved}
-              onChange={(e) => setLivesSaved(e.target.value)}
-              placeholder="Enter number"
-              className="w-full p-2.5 border border-gray-300 rounded text-base"
-            />
-          </div>
-          
-          <div className="flex justify-end">
-            <button
-              onClick={() => livesSaved && setStep(2)}
-              disabled={!livesSaved}
-              className={`px-5 py-2.5 rounded font-bold ${
-                livesSaved 
-                  ? 'bg-blue-600 text-white cursor-pointer hover:bg-blue-700' 
-                  : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-              }`}
-            >
-              Next
-            </button>
+            <p className="text-gray-500">
+              Calculate property replacement costs and public value scores for emergency response planning
+            </p>
           </div>
         </div>
-      )}
       
-      {/* Step 2: Properties with FIRIS Data */}
-      {step === 2 && (
-        <div className="border border-gray-200 rounded-lg p-6">
-          <h2 className="text-xl font-bold mb-5">Step 2: Properties Saved (FIRIS Method)</h2>
+        {/* Step indicator */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
+          <div className="flex justify-between items-center max-w-4xl mx-auto">
+            {[1, 2, 3, 4].map((num, index) => (
+              <React.Fragment key={num}>
+                <div className="flex flex-col items-center">
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-3 font-bold text-lg transition-all duration-200 ${
+                    step >= num ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    {num}
+                  </div>
+                  <div className={`text-sm font-medium ${step >= num ? 'text-blue-600' : 'text-gray-500'}`}>
+                    {num === 1 ? 'Lives Saved' : 
+                     num === 2 ? 'Properties (FIRIS)' : 
+                     num === 3 ? 'Budget & Efficiency' : 'Results'}
+                  </div>
+                </div>
+                {index < 3 && (
+                  <div className={`flex-1 h-0.5 mx-4 transition-all duration-200 ${
+                    step > num ? 'bg-blue-600' : 'bg-gray-200'
+                  }`} />
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      
+        {/* Step 1: Lives Saved */}
+        {step === 1 && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 lg:p-12">
+            <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-6">Step 1: Lives Saved</h2>
           
-          <div className="mb-5">
-            <div className="flex gap-3 mb-3">
+            <div className="max-w-2xl">
+              <label className="block text-lg font-semibold text-gray-700 mb-3">
+                Number of Lives Saved
+              </label>
+              <p className="text-gray-600 mb-6 leading-relaxed">
+                How many individuals survived due to EMS intervention when vitals were outside survivable range
+              </p>
+              <input
+                type="number"
+                value={livesSaved}
+                onChange={(e) => setLivesSaved(e.target.value)}
+                placeholder="Enter number of lives saved"
+                className="w-full p-4 text-lg border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+              />
+            </div>
+          
+            <div className="flex justify-end pt-8">
               <button
-                onClick={() => setShowAddForm(!showAddForm)}
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                onClick={() => livesSaved && setStep(2)}
+                disabled={!livesSaved}
+                className={`px-8 py-3 rounded-lg font-semibold text-lg transition-all duration-200 ${
+                  livesSaved 
+                    ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg hover:shadow-xl' 
+                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                }`}
               >
-                {showAddForm ? 'Cancel' : '+ Add Property'}
-              </button>
-              <button
-                onClick={() => setShowNeighborLookup(!showNeighborLookup)}
-                className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700"
-              >
-                {showNeighborLookup ? 'Cancel' : '🏘️ Find Neighbors'}
-              </button>
-              <button
-                onClick={() => setShowBulkUpload(!showBulkUpload)}
-                className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-              >
-                {showBulkUpload ? 'Cancel' : '📄 Bulk Upload CSV'}
-              </button>
-              <button
-                onClick={downloadCSVTemplate}
-                className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
-              >
-                ⬇ Download CSV Template
+                Next Step →
               </button>
             </div>
-            <p className="text-sm text-gray-500">
-              Add properties manually or upload multiple properties via CSV using FIRIS standards
-            </p>
           </div>
+        )}
+      
+        {/* Step 2: Properties with FIRIS Data */}
+        {step === 2 && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 lg:p-12">
+            <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-6">Step 2: Properties Saved (FIRIS Method)</h2>
+          
+            <div className="mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <button
+                  onClick={() => setShowAddForm(!showAddForm)}
+                  className="flex items-center justify-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  <span className="mr-2">+</span>
+                  {showAddForm ? 'Cancel' : 'Add Property'}
+                </button>
+                <button
+                  onClick={() => setShowNeighborLookup(!showNeighborLookup)}
+                  className="flex items-center justify-center px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
+                >
+                  <span className="mr-2">🏘️</span>
+                  {showNeighborLookup ? 'Cancel' : 'Find Neighbors'}
+                </button>
+                <button
+                  onClick={() => setShowBulkUpload(!showBulkUpload)}
+                  className="flex items-center justify-center px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                >
+                  <span className="mr-2">📄</span>
+                  {showBulkUpload ? 'Cancel' : 'Bulk Upload CSV'}
+                </button>
+                <button
+                  onClick={downloadCSVTemplate}
+                  className="flex items-center justify-center px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
+                >
+                  <span className="mr-2">⬇</span>
+                  Download Template
+                </button>
+              </div>
+              <p className="text-gray-600 bg-blue-50 p-4 rounded-lg">
+                Add properties manually or upload multiple properties via CSV using FIRIS emergency response standards
+              </p>
+            </div>
           
           {showAddForm && (
             <div className="border border-gray-200 rounded-lg p-5 mb-5 bg-gray-50">
@@ -1245,103 +1473,107 @@ const PVSCalculator = () => {
             </div>
           )}
 
-          <div className="flex justify-between">
-            <button
-              onClick={() => setStep(1)}
-              className="bg-white border border-gray-300 px-5 py-2.5 rounded hover:bg-gray-50"
-            >
-              Back
-            </button>
-            <button
-              onClick={() => {
-                const canProceed = properties.length > 0 && properties.every(p => p.squareFootage && p.yearBuilt);
-                if (canProceed) setStep(3);
-              }}
-              disabled={properties.length === 0 || properties.some(p => !p.squareFootage || !p.yearBuilt)}
-              className={`px-5 py-2.5 rounded ${
-                properties.length > 0 && properties.every(p => p.squareFootage && p.yearBuilt)
-                  ? 'bg-blue-600 text-white cursor-pointer hover:bg-blue-700' 
-                  : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-              }`}
-            >
-              {properties.length === 0 ? 'Add Properties First' : 
-               properties.some(p => !p.squareFootage || !p.yearBuilt) ? 'Complete Missing Data' : 'Next'}
-            </button>
-          </div>
-        </div>
-      )}
-      
-      {/* Step 3: Budget & Efficiency */}
-      {step === 3 && (
-        <div className="border border-gray-200 rounded-lg p-6">
-          <h2 className="text-xl font-bold mb-5">Step 3: Budget & Efficiency</h2>
-          
-          <div className="mb-5">
-            <label className="block font-bold mb-2">
-              Annual Operating Budget
-            </label>
-            <input
-              type="text"
-              value={budget}
-              onChange={(e) => setBudget(e.target.value)}
-              placeholder="$173,100,000"
-              className="w-full p-2.5 border border-gray-300 rounded text-base"
-            />
-          </div>
-          
-          <div className="mb-5">
-            <label className="block font-bold mb-2">
-              Efficiency Multiplier
-            </label>
-            <p className="text-sm text-gray-500 mb-2">
-              Adjust based on response time, staffing efficiency, and system readiness
-            </p>
-            <select
-              value={efficiency}
-              onChange={(e) => setEfficiency(e.target.value)}
-              className="w-full p-2.5 border border-gray-300 rounded text-base"
-            >
-              <option value="0.85">0.85 - Below Average Efficiency</option>
-              <option value="0.90">0.90 - Average Efficiency</option>
-              <option value="0.95">0.95 - High Efficiency</option>
-            </select>
-          </div>
-          
-          <div className="flex justify-between">
-            <button
-              onClick={() => setStep(2)}
-              className="bg-white border border-gray-300 px-5 py-2.5 rounded hover:bg-gray-50"
-            >
-              Back
-            </button>
-            <button
-              onClick={calculatePVS}
-              disabled={!budget}
-              className={`px-5 py-2.5 rounded ${
-                budget 
-                  ? 'bg-blue-600 text-white cursor-pointer hover:bg-blue-700' 
-                  : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-              }`}
-            >
-              Calculate PVS
-            </button>
-          </div>
-        </div>
-      )}
-      
-      {/* Step 4: Results */}
-      {step === 4 && pvsScore && (
-        <div className="border border-gray-200 rounded-lg p-6">
-          <h2 className="text-xl font-bold mb-5">Results</h2>
-          
-          <div className="text-center mb-8">
-            <div className="text-5xl font-bold text-blue-600 mb-2">
-              PVS = {pvsScore.score}
+            <div className="flex justify-between pt-8">
+              <button
+                onClick={() => setStep(1)}
+                className="px-8 py-3 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-semibold text-lg transition-colors"
+              >
+                ← Back
+              </button>
+              <button
+                onClick={() => {
+                  const canProceed = properties.length > 0 && properties.every(p => p.squareFootage && p.yearBuilt);
+                  if (canProceed) setStep(3);
+                }}
+                disabled={properties.length === 0 || properties.some(p => !p.squareFootage || !p.yearBuilt)}
+                className={`px-8 py-3 rounded-lg font-semibold text-lg transition-all duration-200 ${
+                  properties.length > 0 && properties.every(p => p.squareFootage && p.yearBuilt)
+                    ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg hover:shadow-xl' 
+                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                }`}
+              >
+                {properties.length === 0 ? 'Add Properties First' : 
+                 properties.some(p => !p.squareFootage || !p.yearBuilt) ? 'Complete Missing Data' : 'Next Step →'}
+              </button>
             </div>
-            <p className="text-lg">
-              For every $1 spent, your department generates ${pvsScore.score} in societal value.
-            </p>
           </div>
+        )}
+      
+        {/* Step 3: Budget & Efficiency */}
+        {step === 3 && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 lg:p-12">
+            <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-6">Step 3: Budget & Efficiency</h2>
+          
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div>
+                <label className="block text-lg font-semibold text-gray-700 mb-3">
+                  Annual Operating Budget
+                </label>
+                <input
+                  type="text"
+                  value={budget}
+                  onChange={(e) => setBudget(e.target.value)}
+                  placeholder="$173,100,000"
+                  className="w-full p-4 text-lg border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-lg font-semibold text-gray-700 mb-3">
+                  Efficiency Multiplier
+                </label>
+                <p className="text-gray-600 mb-4">
+                  Adjust based on response time, staffing efficiency, and system readiness
+                </p>
+                <select
+                  value={efficiency}
+                  onChange={(e) => setEfficiency(e.target.value)}
+                  className="w-full p-4 text-lg border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                >
+                  <option value="0.85">0.85 - Below Average Efficiency</option>
+                  <option value="0.90">0.90 - Average Efficiency</option>
+                  <option value="0.95">0.95 - High Efficiency</option>
+                </select>
+              </div>
+            </div>
+          
+            <div className="flex justify-between pt-8">
+              <button
+                onClick={() => setStep(2)}
+                className="px-8 py-3 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-semibold text-lg transition-colors"
+              >
+                ← Back
+              </button>
+              <button
+                onClick={calculatePVS}
+                disabled={!budget}
+                className={`px-8 py-3 rounded-lg font-semibold text-lg transition-all duration-200 ${
+                  budget 
+                    ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg hover:shadow-xl' 
+                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                }`}
+              >
+                Calculate PVS →
+              </button>
+            </div>
+          </div>
+        )}
+      
+        {/* Step 4: Results */}
+        {step === 4 && pvsScore && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 lg:p-12">
+            <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-8">PVS Calculation Results</h2>
+            
+            <div className="text-center mb-12">
+              <div className="bg-blue-50 rounded-xl p-8 mb-6">
+                <div className="text-6xl lg:text-7xl font-bold text-blue-600 mb-4">
+                  PVS = {pvsScore.score}
+                </div>
+                <p className="text-xl lg:text-2xl text-gray-700 font-medium">
+                  For every $1 spent, your department generates <span className="text-blue-600 font-bold">${pvsScore.score}</span> in societal value
+                </p>
+              </div>
+            </div>
           
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-5 mb-8">
             <h3 className="text-lg font-bold mb-4">Formula Breakdown (FIRIS Method)</h3>
@@ -1377,33 +1609,39 @@ const PVSCalculator = () => {
             </div>
           </div>
           
-          <div className="flex justify-center gap-4">
-            <button
-              className="bg-white border border-gray-300 px-5 py-2.5 rounded flex items-center hover:bg-gray-50"
-            >
-              <span className="mr-2">↓</span>
-              Download FIRIS Report (PDF)
-            </button>
-            <button
-              onClick={resetCalculator}
-              className="bg-blue-600 text-white px-5 py-2.5 rounded flex items-center hover:bg-blue-700"
-            >
-              <span className="mr-2">↻</span>
-              Start Over
-            </button>
+            <div className="flex justify-center gap-6">
+              <button
+                onClick={generatePDFReport}
+                className="flex items-center px-8 py-3 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-semibold text-lg transition-colors"
+              >
+                <span className="mr-2">↓</span>
+                Download FIRIS Report (PDF)
+              </button>
+              <button
+                onClick={resetCalculator}
+                className="flex items-center px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-lg transition-colors shadow-lg hover:shadow-xl"
+              >
+                <span className="mr-2">↻</span>
+                Start Over
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Data Transparency Footer */}
-      <div className="mt-8 pt-6 border-t border-gray-200">
-        <div className="bg-blue-50 rounded-lg p-4 text-sm text-gray-700">
-          <h4 className="font-semibold text-blue-800 mb-2">Data Sources & Methodology</h4>
-          <div className="space-y-1">
-            <p><strong>Property Values:</strong> Market data sourced from Zillow. Replacement costs calculated using FIRIS (Fire Insurance Rating Information System) emergency response standards.</p>
-            <p><strong>Market Estimates:</strong> Zillow Zestimate® is an automated valuation model (AVM) that estimates market value. Actual property values may vary.</p>
-            <p><strong>FIRIS Calculations:</strong> Based on construction type, square footage, age depreciation, condition factors, and local market multipliers per fire department standards.</p>
-            <p><strong>Disclaimer:</strong> All estimates are for informational and planning purposes only. Actual replacement costs and market values may differ. Property data accuracy depends on source availability and currency.</p>
+        {/* Data Transparency Footer */}
+        <div className="mt-12 pt-8 border-t border-gray-300">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+            <h4 className="text-xl font-bold text-gray-900 mb-6">Data Sources & Methodology</h4>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 text-gray-700">
+              <div>
+                <p className="mb-4"><strong className="text-gray-900">Property Values:</strong> Market data sourced from Zillow. Replacement costs calculated using FIRIS (Fire Insurance Rating Information System) emergency response standards.</p>
+                <p className="mb-4"><strong className="text-gray-900">Market Estimates:</strong> Zillow Zestimate® is an automated valuation model (AVM) that estimates market value. Actual property values may vary.</p>
+              </div>
+              <div>
+                <p className="mb-4"><strong className="text-gray-900">FIRIS Calculations:</strong> Based on construction type, square footage, age depreciation, condition factors, and local market multipliers per fire department standards.</p>
+                <p><strong className="text-gray-900">Disclaimer:</strong> All estimates are for informational and planning purposes only. Actual replacement costs and market values may differ. Property data accuracy depends on source availability and currency.</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
