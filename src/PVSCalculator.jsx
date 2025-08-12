@@ -479,6 +479,7 @@ const PVSCalculator = () => {
     reader.readAsText(file);
   };
 
+
   // Apply bulk upload results
   const applyBulkUpload = async () => {
     if (!bulkUploadResults || !bulkUploadResults.properties) return;
@@ -549,6 +550,18 @@ const PVSCalculator = () => {
         const validatedAddress = addressSuggestions[0];
         console.log(`Using validated address:`, validatedAddress);
         
+        // Fetch market value for the target property while we have the zpid
+        let targetMarketValue = null;
+        let targetZestimate = null;
+        try {
+          const propertyDetails = await zillowService.getPropertyDetails(validatedAddress.zpid);
+          targetMarketValue = propertyDetails.price || null;
+          targetZestimate = propertyDetails.zestimate || null;
+          console.log(`Market value for ${validatedAddress.address}: ${targetMarketValue || targetZestimate || 'Not available'}`);
+        } catch (error) {
+          console.warn(`Could not fetch market value for ${validatedAddress.address}:`, error.message);
+        }
+        
         // Update progress with validated address
         setNeighborFetchProgress({
           total: propertiesNeedingNeighbors.length,
@@ -561,7 +574,9 @@ const PVSCalculator = () => {
           zpid: validatedAddress.zpid,
           address: validatedAddress.address,
           latitude: validatedAddress.latitude,
-          longitude: validatedAddress.longitude
+          longitude: validatedAddress.longitude,
+          marketPrice: targetMarketValue,
+          zestimate: targetZestimate
         };
         
         // Get neighbors for this property using bulk neighbor options
@@ -573,45 +588,89 @@ const PVSCalculator = () => {
         
         if (neighborData.neighbors && neighborData.neighbors.length > 0) {
           // Process neighbors and add FIRIS values
-          const processedNeighbors = neighborData.neighbors.map(neighbor => {
+          const processedNeighbors = [];
+          
+          for (const neighbor of neighborData.neighbors) {
             const hasRealData = neighbor.price || neighbor.zestimate || neighbor.livingArea;
+            const hasSquareFootage = neighbor.livingArea && neighbor.livingArea > 0;
             
-            if (hasRealData) {
+            if (hasRealData && hasSquareFootage) {
+              let enhancedNeighbor = { ...neighbor };
+              
+              // If yearBuilt is missing, try to fetch detailed property info
+              if (!neighbor.yearBuilt && neighbor.zpid) {
+                try {
+                  // Update progress to show we're fetching detailed info
+                  setNeighborFetchProgress({
+                    total: propertiesNeedingNeighbors.length,
+                    current: i + 1,
+                    status: `Fetching detailed info for ${neighbor.address}... (${i + 1}/${propertiesNeedingNeighbors.length})`
+                  });
+                  
+                  console.log(`Fetching detailed info for ${neighbor.address} to get missing yearBuilt...`);
+                  const detailedInfo = await zillowService.getPropertyDetails(neighbor.zpid);
+                  
+                  if (detailedInfo.yearBuilt) {
+                    enhancedNeighbor.yearBuilt = detailedInfo.yearBuilt;
+                    console.log(`Found yearBuilt for ${neighbor.address}: ${detailedInfo.yearBuilt}`);
+                  } else {
+                    console.warn(`No yearBuilt found in detailed info for ${neighbor.address}`);
+                  }
+                  
+                  // Also enhance other missing data if available
+                  if (!enhancedNeighbor.price && detailedInfo.price) {
+                    enhancedNeighbor.price = detailedInfo.price;
+                  }
+                  if (!enhancedNeighbor.zestimate && detailedInfo.zestimate) {
+                    enhancedNeighbor.zestimate = detailedInfo.zestimate;
+                  }
+                  
+                  // Add a small delay to respect rate limits
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                  
+                } catch (error) {
+                  console.warn(`Could not fetch detailed info for ${neighbor.address}:`, error.message);
+                }
+              }
               const neighborProperty = {
-                address: neighbor.address,
-                incidentId: property.incidentId || '',
+                address: enhancedNeighbor.address,
+                incidentId: '', // Don't copy parent's incident ID to neighbors
                 propertyType: 'residential',
                 structureType: 'single_family',
-                yearBuilt: neighbor.yearBuilt ? neighbor.yearBuilt.toString() : null,
-                squareFootage: neighbor.livingArea ? neighbor.livingArea.toString() : null,
+                yearBuilt: enhancedNeighbor.yearBuilt ? enhancedNeighbor.yearBuilt.toString() : null,
+                squareFootage: enhancedNeighbor.livingArea ? enhancedNeighbor.livingArea.toString() : null,
                 stories: '1',
                 constructionType: 'wood_frame',
                 roofType: 'composition',
                 exteriorWalls: 'wood_siding',
                 condition: 'good',
                 localMultiplier: '1.0',
-                marketPrice: neighbor.price,
-                zestimate: neighbor.zestimate,
-                dataSource: 'zillow-auto',
+                marketPrice: enhancedNeighbor.price || enhancedNeighbor.zestimate,
+                zestimate: enhancedNeighbor.zestimate,
+                price: enhancedNeighbor.price,
+                dataSource: 'zillow-enhanced',
                 parentProperty: property.address,
-                distance: neighbor.distance,
-                direction: neighbor.direction,
-                category: neighbor.category
+                distance: enhancedNeighbor.distance,
+                direction: enhancedNeighbor.direction,
+                category: enhancedNeighbor.category
               };
               
               const value = calculateFIRISValue(neighborProperty);
               
-              return {
+              processedNeighbors.push({
                 ...neighborProperty,
                 value,
                 id: Date.now() + Math.random()
-              };
+              });
             }
-            return null;
-          }).filter(n => n !== null);
+          }
           
           neighborGroups[property.address] = {
-            targetProperty: property,
+            targetProperty: {
+              ...property,
+              marketPrice: targetMarketValue,
+              zestimate: targetZestimate
+            },
             validatedAddress: validatedAddress.address,
             neighbors: processedNeighbors,
             searchRadius: bulkNeighborOptions.radius,
@@ -665,6 +724,20 @@ const PVSCalculator = () => {
   const addSelectedNeighborsToList = () => {
     if (!neighborPreview || !neighborPreview.groups) return;
     
+    // First, update the original properties with their market values
+    const updatedMainProperties = properties.map(property => {
+      const group = neighborPreview.groups[property.address];
+      if (group && group.targetProperty) {
+        // Update with market value we fetched
+        return {
+          ...property,
+          marketPrice: group.targetProperty.marketPrice || property.marketPrice,
+          zestimate: group.targetProperty.zestimate || property.zestimate
+        };
+      }
+      return property;
+    });
+    
     const rawNeighbors = [];
     Object.keys(selectedNeighbors).forEach(address => {
       const group = neighborPreview.groups[address];
@@ -677,20 +750,21 @@ const PVSCalculator = () => {
       }
     });
     
-    // Convert raw neighbor objects to property format (same logic as handleNeighborsFound)
+    // Convert neighbor objects to property format
     const neighborsToAdd = rawNeighbors.map(neighbor => {
-      console.log('Processing bulk neighbor from Zillow:', neighbor.address);
-      console.log('Available Zillow data:', {
-        price: neighbor.price,
-        zestimate: neighbor.zestimate,
-        livingArea: neighbor.livingArea,
-        yearBuilt: neighbor.yearBuilt,
-        bedrooms: neighbor.bedrooms,
-        bathrooms: neighbor.bathrooms
-      });
+      // These neighbors have already been processed in fetchNeighborsForPreview
+      // They already have the proper structure with marketPrice, value, etc.
+      if (neighbor.value !== undefined) {
+        // Already processed neighbor, just return it with a new ID
+        return {
+          ...neighbor,
+          id: Date.now() + Math.random()
+        };
+      }
       
-      // Use real Zillow building data for accurate FIRIS calculation
-      const hasRealZillowData = neighbor.price || neighbor.zestimate || neighbor.livingArea;
+      // Fallback for any unprocessed neighbors (shouldn't happen normally)
+      console.log('Processing unprocessed neighbor:', neighbor.address);
+      const hasRealZillowData = neighbor.price || neighbor.zestimate || neighbor.marketPrice || neighbor.livingArea;
       
       if (hasRealZillowData) {
         // Check what data is actually available from Zillow
@@ -710,7 +784,8 @@ const PVSCalculator = () => {
           roofType: 'composition',
           condition: 'good',
           localMultiplier: 1.0,
-          marketPrice: neighbor.price || neighbor.zestimate,
+          marketPrice: neighbor.price || neighbor.zestimate || neighbor.marketPrice,
+          zestimate: neighbor.zestimate,
           id: Date.now() + Math.random()
         };
         
@@ -746,10 +821,20 @@ const PVSCalculator = () => {
       }
     });
     
-    if (neighborsToAdd.length > 0) {
-      setProperties([...properties, ...neighborsToAdd]);
-      console.log(`Added ${neighborsToAdd.length} neighbor properties to the calculation`);
-    }
+    // Deduplicate by address to prevent duplicates
+    const allProperties = [...updatedMainProperties, ...neighborsToAdd];
+    const seen = new Set();
+    const deduplicatedProperties = allProperties.filter(property => {
+      if (seen.has(property.address)) {
+        console.warn(`Duplicate address detected and removed: ${property.address}`);
+        return false;
+      }
+      seen.add(property.address);
+      return true;
+    });
+    
+    setProperties(deduplicatedProperties);
+    console.log(`Updated ${updatedMainProperties.length} properties with market values, added ${neighborsToAdd.length} neighbors, final count: ${deduplicatedProperties.length} (removed ${allProperties.length - deduplicatedProperties.length} duplicates)`);
     
     // Clean up
     setNeighborPreview(null);
@@ -1088,12 +1173,13 @@ const PVSCalculator = () => {
 
     // Add total row
     const totalFIRIS = properties.reduce((sum, p) => sum + (p.value || 0), 0);
+    const totalMarketValue = properties.reduce((sum, p) => sum + (p.marketPrice || p.zestimate || 0), 0);
     propertiesData.push([
       'TOTAL',
       '',
       '',
       formatCurrency(totalFIRIS),
-      ''
+      formatCurrency(totalMarketValue)
     ]);
 
     // Calculate table width and center it
@@ -1597,6 +1683,7 @@ const PVSCalculator = () => {
                               <th className="p-2 text-center border">Sq Ft</th>
                               <th className="p-2 text-center border">Year</th>
                               <th className="p-2 text-right border">FIRIS Value</th>
+                              <th className="p-2 text-right border">Market Value</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1621,6 +1708,11 @@ const PVSCalculator = () => {
                                 <td className="p-2 text-center border">{parseInt(property.squareFootage).toLocaleString()}</td>
                                 <td className="p-2 text-center border">{property.yearBuilt}</td>
                                 <td className="p-2 text-right border font-bold">{formatCurrency(property.value)}</td>
+                                <td className="p-2 text-right border text-gray-600">
+                                  {property.marketPrice ? formatCurrency(property.marketPrice) : 
+                                   property.zestimate ? formatCurrency(property.zestimate) : 
+                                   <span className="text-gray-400 text-xs">Will fetch with neighbors</span>}
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -1806,44 +1898,7 @@ const PVSCalculator = () => {
 
                     {/* Address Navigation */}
                     <div className="border-b border-gray-200 mb-6">
-                      {Object.entries(neighborPreview.groups).length <= 5 ? (
-                        /* Tab Navigation for few addresses */
-                        <nav className="-mb-px flex space-x-2" aria-label="Tabs">
-                          {Object.entries(neighborPreview.groups).map(([address, group], index) => (
-                            <button
-                              key={address}
-                              onClick={() => setActiveTab(index)}
-                              className={`
-                                whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors
-                                ${activeTab === index
-                                  ? 'border-blue-500 text-blue-600'
-                                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                                }
-                              `}
-                            >
-                              <div className="flex items-center gap-2">
-                                <span className="truncate max-w-[200px]" title={address}>
-                                  {address.length > 25 ? address.substring(0, 25) + '...' : address}
-                                </span>
-                                <span className={`
-                                  px-2 py-0.5 rounded-full text-xs font-medium
-                                  ${group.neighbors.length > 0 
-                                    ? 'bg-green-100 text-green-800' 
-                                    : 'bg-gray-100 text-gray-600'}
-                                `}>
-                                  {group.neighbors.length}
-                                </span>
-                                {selectedNeighbors[address]?.length > 0 && (
-                                  <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-xs font-medium">
-                                    ✓ {selectedNeighbors[address].length}
-                                  </span>
-                                )}
-                              </div>
-                            </button>
-                          ))}
-                        </nav>
-                      ) : (
-                        /* Dropdown Navigation for many addresses */
+                      {/* Always use Dropdown Navigation */}
                         <div className="flex items-center justify-between py-2">
                           <div className="flex items-center gap-4">
                             <label className="text-sm font-medium text-gray-700">Viewing address:</label>
@@ -1891,7 +1946,6 @@ const PVSCalculator = () => {
                             </button>
                           </div>
                         </div>
-                      )}
                     </div>
 
                     {/* Tab Content */}
@@ -2170,6 +2224,7 @@ const PVSCalculator = () => {
                     <th className="p-3 text-center border-b border-gray-200 text-sm">Sq Ft</th>
                     <th className="p-3 text-center border-b border-gray-200 text-sm">Year</th>
                     <th className="p-3 text-right border-b border-gray-200 text-sm">Replacement Cost</th>
+                    <th className="p-3 text-right border-b border-gray-200 text-sm">Market Value</th>
                     <th className="p-3 text-center border-b border-gray-200 text-sm w-16">Actions</th>
                   </tr>
                 </thead>
@@ -2355,6 +2410,11 @@ const PVSCalculator = () => {
                           )}
                         </div>
                       </td>
+                      <td className="p-3 text-right border-b border-gray-200 text-sm">
+                        {property.marketPrice ? formatCurrency(property.marketPrice) : 
+                         property.zestimate ? formatCurrency(property.zestimate) : 
+                         <span className="text-gray-400 italic">N/A</span>}
+                      </td>
                       <td className="p-3 text-center border-b border-gray-200">
                         <button
                           onClick={() => removeProperty(index)}
@@ -2378,6 +2438,9 @@ const PVSCalculator = () => {
                     </td>
                     <td className="p-3 text-right font-bold text-base text-blue-600">
                       {formatCurrency(properties.reduce((sum, property) => sum + (property.value || 0), 0))}
+                    </td>
+                    <td className="p-3 text-right font-bold text-base text-green-600">
+                      {formatCurrency(properties.reduce((sum, property) => sum + (property.marketPrice || property.zestimate || 0), 0))}
                     </td>
                     <td></td>
                   </tr>

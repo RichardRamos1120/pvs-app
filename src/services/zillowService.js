@@ -142,9 +142,18 @@ class ZillowService {
 
       // Log the number of nearby homes returned by Zillow API
       console.log(`Zillow API returned ${propertyDetails.nearbyHomes.length} nearby homes`);
+      
+      // Remove any potential duplicates from Zillow API response
+      const uniqueHomes = propertyDetails.nearbyHomes.filter((home, index, arr) => 
+        arr.findIndex(h => h.zpid === home.zpid) === index
+      );
+      
+      if (uniqueHomes.length < propertyDetails.nearbyHomes.length) {
+        console.warn(`Removed ${propertyDetails.nearbyHomes.length - uniqueHomes.length} duplicate neighbors from Zillow API response`);
+      }
 
-      // Process nearby homes into our expected format
-      const neighbors = propertyDetails.nearbyHomes.map(home => {
+      // Process unique nearby homes into our expected format
+      const neighbors = uniqueHomes.map(home => {
         const distance = this.calculateDistance(
           enrichedTargetProperty.latitude, 
           enrichedTargetProperty.longitude,
