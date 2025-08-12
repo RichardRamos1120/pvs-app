@@ -864,6 +864,7 @@ const PVSCalculator = () => {
     document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
   };
+
   
   
   // Calculate PVS
@@ -1027,9 +1028,9 @@ const PVSCalculator = () => {
       
       // Insert the adjustment info after Property Replacement Value
       formulaData.splice(2, 0, [
-        '  └ Local Cost Adjustment', 
-        `Avg. ${avgMultiplier.toFixed(1)}x (${Math.round((avgMultiplier - 1) * 100)}% higher)`, 
-        `+${formatCurrency(adjustment)}`
+        'Local Cost Adjustment', 
+        'Avg. ' + avgMultiplier.toFixed(1) + 'x (' + Math.round((avgMultiplier - 1) * 100) + '% higher)', 
+        '+' + formatCurrency(adjustment)
       ]);
     }
 
@@ -1045,7 +1046,13 @@ const PVSCalculator = () => {
         2: { cellWidth: 'auto', halign: 'right', fontStyle: 'bold' }
       },
       margin: { left: margin, right: margin },
-      styles: { fontSize: 10 }
+      styles: { fontSize: 10, font: 'helvetica' },
+      didParseCell: function (data) {
+        // Ensure proper text rendering for all cells
+        if (data.cell.text && typeof data.cell.text === 'string') {
+          data.cell.text = data.cell.text;
+        }
+      }
     });
 
     yPosition = doc.lastAutoTable.finalY + 15;
@@ -2578,7 +2585,7 @@ const PVSCalculator = () => {
                 onClick={generatePDFReport}
                 className="flex items-center px-8 py-3 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-semibold text-lg transition-colors"
               >
-                <span className="mr-2">↓</span>
+                <span className="mr-2">📄</span>
                 Download FIRIS Report (PDF)
               </button>
               <button
