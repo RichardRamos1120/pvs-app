@@ -175,8 +175,18 @@ class ZillowService {
           fullAddress = `Property ${home.zpid}`;
         }
 
+        // Debug: Log all available fields for this neighbor
+        console.log(`Debug - Neighbor ${fullAddress} raw data:`, {
+          yearBuilt: home.yearBuilt,
+          dateBuilt: home.dateBuilt,
+          yearBuilt_alt: home.year_built,
+          built: home.built,
+          construction: home.construction,
+          allFields: Object.keys(home)
+        });
+
         // Validate and fix year built data
-        let validatedYearBuilt = home.yearBuilt;
+        let validatedYearBuilt = home.yearBuilt || home.dateBuilt || home.year_built;
         if (validatedYearBuilt) {
           const currentYear = new Date().getFullYear();
           // If year is unrealistic (future or too old), log it and set to null
@@ -184,6 +194,8 @@ class ZillowService {
             console.warn(`Invalid yearBuilt for ${fullAddress}: ${validatedYearBuilt}. Setting to null.`);
             validatedYearBuilt = null;
           }
+        } else {
+          console.warn(`No yearBuilt data found for ${fullAddress}`);
         }
 
         return {

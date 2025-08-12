@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import NeighborLookup from './components/NeighborLookup';
+import ZillowService from './services/zillowService';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -36,6 +37,16 @@ const PVSCalculator = () => {
   const [bulkUploadResults, setBulkUploadResults] = useState(null);
   const [showNeighborLookup, setShowNeighborLookup] = useState(false);
   const [editingProperty, setEditingProperty] = useState(null); // Track which property is being edited
+  const [neighborFetchProgress, setNeighborFetchProgress] = useState(null); // Track neighbor fetching progress
+  const [selectedForNeighbors, setSelectedForNeighbors] = useState([]); // Track which bulk properties should fetch neighbors
+  const [bulkNeighborOptions, setBulkNeighborOptions] = useState({
+    radius: 100,
+    includeAcrossStreet: true,
+    maxResults: 15
+  }); // Neighbor search options for bulk upload
+  const [neighborPreview, setNeighborPreview] = useState(null); // Preview neighbors before adding
+  const [selectedNeighbors, setSelectedNeighbors] = useState({}); // Track selected neighbors per address
+  const [activeTab, setActiveTab] = useState(0); // Track active tab in neighbor preview
   
   // Constants
   const VSL = 7000000; // Value of Statistical Life: $7 million
@@ -463,16 +474,287 @@ const PVSCalculator = () => {
       }
 
       setBulkUploadResults(result);
+      setSelectedForNeighbors([]); // Reset neighbor selection
     };
     reader.readAsText(file);
   };
 
   // Apply bulk upload results
-  const applyBulkUpload = () => {
+  const applyBulkUpload = async () => {
     if (!bulkUploadResults || !bulkUploadResults.properties) return;
     
-    setProperties([...properties, ...bulkUploadResults.properties]);
+    // First add the main properties
+    const mainProperties = [...properties, ...bulkUploadResults.properties];
+    setProperties(mainProperties);
+    
+    // Check if any properties are selected to include neighbors
+    const propertiesNeedingNeighbors = bulkUploadResults.properties
+      .filter((p, index) => selectedForNeighbors.includes(index))
+      .slice(0, 20); // Limit to first 20 to avoid API overload
+    
+    if (propertiesNeedingNeighbors.length > 0) {
+      // Show progress indicator
+      setNeighborFetchProgress({
+        total: propertiesNeedingNeighbors.length,
+        current: 0,
+        status: 'Fetching neighbors...'
+      });
+      
+      // Fetch neighbors for preview (don't add yet)
+      await fetchNeighborsForPreview(propertiesNeedingNeighbors);
+    } else {
+      // No neighbors to fetch, just finish
+      setBulkUploadResults(null);
+      setShowBulkUpload(false);
+      setSelectedForNeighbors([]);
+      
+      // Reset file input
+      const fileInput = document.getElementById('bulk-upload-input');
+      if (fileInput) fileInput.value = '';
+    }
+  };
+
+  // Fetch neighbors for preview
+  const fetchNeighborsForPreview = async (propertiesNeedingNeighbors) => {
+    const zillowService = new ZillowService();
+    const neighborGroups = {};
+    const failedAddresses = [];
+    const noNeighborsFound = [];
+    
+    for (let i = 0; i < propertiesNeedingNeighbors.length; i++) {
+      const property = propertiesNeedingNeighbors[i];
+      
+      // Update progress
+      setNeighborFetchProgress({
+        total: propertiesNeedingNeighbors.length,
+        current: i + 1,
+        status: `Validating address: ${property.address} (${i + 1}/${propertiesNeedingNeighbors.length})...`
+      });
+      
+      try {
+        // First, validate and get properly formatted address using Zillow's address suggestions
+        console.log(`Validating address: ${property.address}`);
+        const addressSuggestions = await zillowService.getAddressSuggestions(property.address);
+        
+        if (!addressSuggestions || addressSuggestions.length === 0) {
+          console.warn(`No address suggestions found for: ${property.address}`);
+          failedAddresses.push({
+            originalAddress: property.address,
+            reason: 'Address not found in Zillow database'
+          });
+          continue; // Skip this property
+        }
+        
+        // Use the first (best) suggestion, similar to auto-selecting in AddressAutocomplete
+        const validatedAddress = addressSuggestions[0];
+        console.log(`Using validated address:`, validatedAddress);
+        
+        // Update progress with validated address
+        setNeighborFetchProgress({
+          total: propertiesNeedingNeighbors.length,
+          current: i + 1,
+          status: `Fetching neighbors for ${validatedAddress.address} (${i + 1}/${propertiesNeedingNeighbors.length})...`
+        });
+        
+        // Now use the validated address to find neighbors
+        const targetProperty = {
+          zpid: validatedAddress.zpid,
+          address: validatedAddress.address,
+          latitude: validatedAddress.latitude,
+          longitude: validatedAddress.longitude
+        };
+        
+        // Get neighbors for this property using bulk neighbor options
+        const neighborData = await zillowService.getNeighborsByAddress(targetProperty, {
+          radius: bulkNeighborOptions.radius,
+          includeAcrossStreet: bulkNeighborOptions.includeAcrossStreet,
+          maxResults: bulkNeighborOptions.maxResults
+        });
+        
+        if (neighborData.neighbors && neighborData.neighbors.length > 0) {
+          // Process neighbors and add FIRIS values
+          const processedNeighbors = neighborData.neighbors.map(neighbor => {
+            const hasRealData = neighbor.price || neighbor.zestimate || neighbor.livingArea;
+            
+            if (hasRealData) {
+              const neighborProperty = {
+                address: neighbor.address,
+                incidentId: property.incidentId || '',
+                propertyType: 'residential',
+                structureType: 'single_family',
+                yearBuilt: neighbor.yearBuilt ? neighbor.yearBuilt.toString() : null,
+                squareFootage: neighbor.livingArea ? neighbor.livingArea.toString() : null,
+                stories: '1',
+                constructionType: 'wood_frame',
+                roofType: 'composition',
+                exteriorWalls: 'wood_siding',
+                condition: 'good',
+                localMultiplier: '1.0',
+                marketPrice: neighbor.price,
+                zestimate: neighbor.zestimate,
+                dataSource: 'zillow-auto',
+                parentProperty: property.address,
+                distance: neighbor.distance,
+                direction: neighbor.direction,
+                category: neighbor.category
+              };
+              
+              const value = calculateFIRISValue(neighborProperty);
+              
+              return {
+                ...neighborProperty,
+                value,
+                id: Date.now() + Math.random()
+              };
+            }
+            return null;
+          }).filter(n => n !== null);
+          
+          neighborGroups[property.address] = {
+            targetProperty: property,
+            validatedAddress: validatedAddress.address,
+            neighbors: processedNeighbors,
+            searchRadius: bulkNeighborOptions.radius,
+            totalFound: neighborData.neighbors.length
+          };
+        } else {
+          // No neighbors found for this property
+          noNeighborsFound.push({
+            originalAddress: property.address,
+            validatedAddress: validatedAddress.address,
+            searchRadius: bulkNeighborOptions.radius
+          });
+        }
+        
+        // Add delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+      } catch (error) {
+        console.error(`Error fetching neighbors for ${property.address}:`, error);
+        failedAddresses.push({
+          originalAddress: property.address,
+          reason: `API Error: ${error.message}`
+        });
+      }
+    }
+    
+    // Show preview with additional information
+    setNeighborPreview({
+      groups: neighborGroups,
+      failedAddresses,
+      noNeighborsFound,
+      summary: {
+        totalProcessed: propertiesNeedingNeighbors.length,
+        successful: Object.keys(neighborGroups).length,
+        failed: failedAddresses.length,
+        noNeighbors: noNeighborsFound.length
+      }
+    });
+    setNeighborFetchProgress(null);
     setBulkUploadResults(null);
+    
+    // Initialize all neighbors as selected
+    const initialSelection = {};
+    Object.keys(neighborGroups).forEach(address => {
+      initialSelection[address] = neighborGroups[address].neighbors.map((_, index) => index);
+    });
+    setSelectedNeighbors(initialSelection);
+  };
+
+  // Add selected neighbors to properties list
+  const addSelectedNeighborsToList = () => {
+    if (!neighborPreview || !neighborPreview.groups) return;
+    
+    const rawNeighbors = [];
+    Object.keys(selectedNeighbors).forEach(address => {
+      const group = neighborPreview.groups[address];
+      if (group && selectedNeighbors[address]) {
+        selectedNeighbors[address].forEach(index => {
+          if (group.neighbors[index]) {
+            rawNeighbors.push(group.neighbors[index]);
+          }
+        });
+      }
+    });
+    
+    // Convert raw neighbor objects to property format (same logic as handleNeighborsFound)
+    const neighborsToAdd = rawNeighbors.map(neighbor => {
+      console.log('Processing bulk neighbor from Zillow:', neighbor.address);
+      console.log('Available Zillow data:', {
+        price: neighbor.price,
+        zestimate: neighbor.zestimate,
+        livingArea: neighbor.livingArea,
+        yearBuilt: neighbor.yearBuilt,
+        bedrooms: neighbor.bedrooms,
+        bathrooms: neighbor.bathrooms
+      });
+      
+      // Use real Zillow building data for accurate FIRIS calculation
+      const hasRealZillowData = neighbor.price || neighbor.zestimate || neighbor.livingArea;
+      
+      if (hasRealZillowData) {
+        // Check what data is actually available from Zillow
+        const hasYearBuilt = neighbor.yearBuilt && neighbor.yearBuilt !== null;
+        const hasSquareFootage = neighbor.livingArea && neighbor.livingArea > 0;
+        
+        // Use Zillow building data for accurate FIRIS inputs
+        const property = {
+          address: neighbor.address,
+          incidentId: '',
+          propertyType: 'residential',
+          structureType: 'single_family',
+          yearBuilt: hasYearBuilt ? neighbor.yearBuilt.toString() : null, // Don't fake missing data
+          squareFootage: hasSquareFootage ? neighbor.livingArea.toString() : null, // Don't fake missing data
+          stories: '1',
+          constructionType: 'wood_frame',
+          roofType: 'composition',
+          condition: 'good',
+          localMultiplier: 1.0,
+          marketPrice: neighbor.price || neighbor.zestimate,
+          id: Date.now() + Math.random()
+        };
+        
+        const value = calculateFIRISValue(property);
+        return {
+          ...property,
+          value
+        };
+      } else {
+        // Fall back to Regrid data if no Zillow data
+        const fields = neighbor.fields || {};
+        const property = {
+          address: neighbor.address,
+          incidentId: '',
+          propertyType: fields.usecode ? mapUseCodeToPropertyType(fields.usecode) : 'residential',
+          structureType: 'single_family',
+          yearBuilt: fields.yearbuilt || fields.yearbuilt1 || estimateYearBuilt(neighbor.address),
+          squareFootage: fields.sqft || fields.improvement_value ? estimateSquareFootage(fields.improvement_value) : estimateSquareFootageByAddress(neighbor.address),
+          stories: fields.stories || estimateStories(fields.sqft),
+          constructionType: fields.construction || 'wood_frame',
+          roofType: 'composition',
+          condition: estimateCondition(fields.yearbuilt),
+          localMultiplier: 1.0,
+          marketPrice: fields.market_value,
+          id: Date.now() + Math.random()
+        };
+        
+        const value = calculateFIRISValue(property);
+        return {
+          ...property,
+          value
+        };
+      }
+    });
+    
+    if (neighborsToAdd.length > 0) {
+      setProperties([...properties, ...neighborsToAdd]);
+      console.log(`Added ${neighborsToAdd.length} neighbor properties to the calculation`);
+    }
+    
+    // Clean up
+    setNeighborPreview(null);
+    setSelectedNeighbors({});
+    setSelectedForNeighbors([]);
     setShowBulkUpload(false);
     
     // Reset file input
@@ -480,11 +762,97 @@ const PVSCalculator = () => {
     if (fileInput) fileInput.value = '';
   };
 
+  // Fetch neighbors for properties marked with include_neighbors
+  const fetchNeighborsForProperties = async (propertiesNeedingNeighbors, allProperties) => {
+    const zillowService = new ZillowService();
+    let allNeighbors = [];
+    
+    for (let i = 0; i < propertiesNeedingNeighbors.length; i++) {
+      const property = propertiesNeedingNeighbors[i];
+      
+      // Update progress
+      setNeighborFetchProgress({
+        total: propertiesNeedingNeighbors.length,
+        current: i + 1,
+        status: `Fetching neighbors for ${property.address} (${i + 1}/${propertiesNeedingNeighbors.length})...`
+      });
+      
+      try {
+        // Search for the property to get its details
+        const searchResults = await zillowService.searchProperties(property.address);
+        
+        if (searchResults.props && searchResults.props.length > 0) {
+          const targetProperty = searchResults.props[0];
+          
+          // Get neighbors for this property using bulk neighbor options
+          const neighborData = await zillowService.getNeighborsByAddress(targetProperty, {
+            radius: bulkNeighborOptions.radius,
+            includeAcrossStreet: bulkNeighborOptions.includeAcrossStreet,
+            maxResults: bulkNeighborOptions.maxResults
+          });
+          
+          if (neighborData.neighbors && neighborData.neighbors.length > 0) {
+            // Process neighbors and add FIRIS values
+            const processedNeighbors = neighborData.neighbors.map(neighbor => {
+              const hasRealData = neighbor.price || neighbor.zestimate || neighbor.livingArea;
+              
+              if (hasRealData) {
+                const neighborProperty = {
+                  address: neighbor.address,
+                  incidentId: property.incidentId || '', // Use parent's incident ID
+                  propertyType: 'residential',
+                  structureType: 'single_family',
+                  yearBuilt: neighbor.yearBuilt ? neighbor.yearBuilt.toString() : null,
+                  squareFootage: neighbor.livingArea ? neighbor.livingArea.toString() : null,
+                  stories: '1',
+                  constructionType: 'wood_frame',
+                  roofType: 'composition',
+                  exteriorWalls: 'wood_siding',
+                  condition: 'good',
+                  localMultiplier: '1.0',
+                  marketPrice: neighbor.price,
+                  zestimate: neighbor.zestimate,
+                  dataSource: 'zillow-auto',
+                  parentProperty: property.address // Track which property this neighbor belongs to
+                };
+                
+                const value = calculateFIRISValue(neighborProperty);
+                
+                return {
+                  ...neighborProperty,
+                  value,
+                  id: Date.now() + Math.random()
+                };
+              }
+              return null;
+            }).filter(n => n !== null);
+            
+            allNeighbors = [...allNeighbors, ...processedNeighbors];
+          }
+        }
+        
+        // Add delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay between properties
+        
+      } catch (error) {
+        console.error(`Error fetching neighbors for ${property.address}:`, error);
+        // Continue with next property even if one fails
+      }
+    }
+    
+    // Add all neighbors to the properties list
+    if (allNeighbors.length > 0) {
+      setProperties([...allProperties, ...allNeighbors]);
+      console.log(`Added ${allNeighbors.length} neighbor properties from ${propertiesNeedingNeighbors.length} target properties`);
+    }
+  };
+
   // Download CSV template
   const downloadCSVTemplate = () => {
     const csvContent = `address,incidentId,propertyType,structureType,yearBuilt,squareFootage,stories,constructionType,condition,localMultiplier
 "123 Main St, Anytown USA",INC-2024-001,residential,single_family,1995,"2,400",2,wood_frame,good,1.0
-"456 Oak Ave, Anytown USA",INC-2024-002,commercial,office,2010,"5,000",3,steel_frame,excellent,1.2`;
+"456 Oak Ave, Anytown USA",INC-2024-002,commercial,office,2010,"5,000",3,steel_frame,excellent,1.2
+"789 Pine Rd, Anytown USA",INC-2024-003,residential,single_family,1988,"1,800",1,wood_frame,fair,0.95`;
     
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -647,6 +1015,24 @@ const PVSCalculator = () => {
       ['PVS Score', '(Total Value / Budget) × Efficiency', pvsScore.score]
     ];
 
+    // Add local multiplier transparency if applicable
+    const hasLocalAdjustments = properties.some(p => (p.localMultiplier || 1) > 1);
+    if (hasLocalAdjustments) {
+      const avgMultiplier = properties.reduce((sum, p) => sum + (p.localMultiplier || 1), 0) / properties.length;
+      const baselineValue = properties.reduce((sum, p) => {
+        const multiplier = p.localMultiplier || 1;
+        return sum + (p.value ? p.value / multiplier : 0);
+      }, 0);
+      const adjustment = pvsScore.totalPropertyValue - baselineValue;
+      
+      // Insert the adjustment info after Property Replacement Value
+      formulaData.splice(2, 0, [
+        '  └ Local Cost Adjustment', 
+        `Avg. ${avgMultiplier.toFixed(1)}x (${Math.round((avgMultiplier - 1) * 100)}% higher)`, 
+        `+${formatCurrency(adjustment)}`
+      ]);
+    }
+
     autoTable(doc, {
       startY: yPosition,
       head: [['Component', 'Calculation', 'Value']],
@@ -703,6 +1089,11 @@ const PVSCalculator = () => {
       ''
     ]);
 
+    // Calculate table width and center it
+    const tableWidth = 70 + 25 + 20 + 35 + 35; // Total column widths = 185
+    const availableWidth = pageWidth - (margin * 2); // Available width between margins
+    const tableMargin = (availableWidth - tableWidth) / 2 + margin; // Center the table
+
     autoTable(doc, {
       startY: yPosition,
       head: [['Address', 'Sq Ft', 'Year', 'FIRIS Value', 'Market Value']],
@@ -717,7 +1108,7 @@ const PVSCalculator = () => {
         4: { cellWidth: 35, halign: 'right' }
       },
       footStyles: { fontStyle: 'bold', fillColor: [240, 240, 240] },
-      margin: { left: margin, right: margin },
+      margin: { left: tableMargin, right: tableMargin },
       styles: { fontSize: 9 },
       didDrawRow: (data) => {
         // Bold the total row
@@ -1126,11 +1517,32 @@ const PVSCalculator = () => {
                   Required columns: address, squareFootage, yearBuilt. 
                   Optional: incidentId, propertyType, structureType, stories, constructionType, condition, localMultiplier
                   <br />
-                  <span className="text-xs text-blue-600">Note: Numbers with commas (e.g., "1,500") should be quoted in the CSV file</span>
+                  <span className="text-xs text-blue-600">• Numbers with commas (e.g., "1,500") should be quoted in the CSV file</span>
                 </p>
               </div>
               
-              {bulkUploadResults && (
+              {neighborFetchProgress && (
+                <div className="mt-4 p-4 border border-blue-300 rounded bg-blue-50">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-bold text-blue-700">Fetching Neighbor Properties...</h4>
+                    <span className="text-sm text-blue-600">
+                      {neighborFetchProgress.current} of {neighborFetchProgress.total}
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
+                    <div 
+                      className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                      style={{ width: `${(neighborFetchProgress.current / neighborFetchProgress.total) * 100}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-sm text-gray-600">{neighborFetchProgress.status}</p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Note: This process may take a few minutes due to API rate limits.
+                  </p>
+                </div>
+              )}
+              
+              {bulkUploadResults && !neighborFetchProgress && (
                 <div className="mt-4 p-4 border border-gray-300 rounded bg-white">
                   <h4 className="font-bold mb-3">Upload Preview</h4>
                   
@@ -1149,11 +1561,30 @@ const PVSCalculator = () => {
                     <div className="mb-4">
                       <h5 className="font-bold text-green-700 mb-2">
                         {bulkUploadResults.properties.length} Properties Ready to Import:
+                        {selectedForNeighbors.length > 0 && (
+                          <span className="ml-2 text-blue-600 text-sm">
+                            ({Math.min(selectedForNeighbors.length, 20)} will fetch neighbors)
+                          </span>
+                        )}
                       </h5>
                       <div className="max-h-60 overflow-y-auto">
                         <table className="w-full text-sm border-collapse">
                           <thead>
                             <tr className="bg-gray-100">
+                              <th className="p-2 text-center border">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedForNeighbors.length === bulkUploadResults.properties.length}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedForNeighbors(bulkUploadResults.properties.map((_, index) => index));
+                                    } else {
+                                      setSelectedForNeighbors([]);
+                                    }
+                                  }}
+                                  title="Select all for neighbor fetching"
+                                />
+                              </th>
                               <th className="p-2 text-left border">Address</th>
                               <th className="p-2 text-center border">Type</th>
                               <th className="p-2 text-center border">Sq Ft</th>
@@ -1164,6 +1595,20 @@ const PVSCalculator = () => {
                           <tbody>
                             {bulkUploadResults.properties.map((property, index) => (
                               <tr key={index} className="border-b">
+                                <td className="p-2 text-center border">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedForNeighbors.includes(index)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedForNeighbors([...selectedForNeighbors, index]);
+                                      } else {
+                                        setSelectedForNeighbors(selectedForNeighbors.filter(i => i !== index));
+                                      }
+                                    }}
+                                    title="Fetch neighbors for this property"
+                                  />
+                                </td>
                                 <td className="p-2 border">{property.address}</td>
                                 <td className="p-2 text-center border">{property.propertyType}/{property.structureType}</td>
                                 <td className="p-2 text-center border">{parseInt(property.squareFootage).toLocaleString()}</td>
@@ -1177,12 +1622,74 @@ const PVSCalculator = () => {
                       <div className="mt-3 p-2 bg-blue-100 rounded">
                         <strong>Total Value: {formatCurrency(bulkUploadResults.properties.reduce((sum, p) => sum + p.value, 0))}</strong>
                       </div>
+                      {bulkUploadResults.properties.length > 0 && (
+                        <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded">
+                          <h6 className="font-semibold text-gray-700 mb-3">🏘️ Neighbor Fetching Options</h6>
+                          <p className="text-sm text-gray-600 mb-3">
+                            Check the boxes above to automatically fetch neighboring properties for selected addresses.
+                          </p>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">
+                                Search Radius (meters)
+                              </label>
+                              <select
+                                value={bulkNeighborOptions.radius}
+                                onChange={(e) => setBulkNeighborOptions({...bulkNeighborOptions, radius: parseInt(e.target.value)})}
+                                className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              >
+                                <option value="30">30m - Next door only</option>
+                                <option value="50">50m - Immediate neighbors</option>
+                                <option value="100">100m - Include across street</option>
+                                <option value="200">200m - Broader area</option>
+                              </select>
+                            </div>
+                            
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">
+                                Max Results Per Property
+                              </label>
+                              <input
+                                type="number"
+                                value={bulkNeighborOptions.maxResults}
+                                onChange={(e) => setBulkNeighborOptions({...bulkNeighborOptions, maxResults: parseInt(e.target.value)})}
+                                min="5"
+                                max="50"
+                                className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                            </div>
+                            
+                            <div className="flex items-end">
+                              <label className="flex items-center">
+                                <input
+                                  type="checkbox"
+                                  checked={bulkNeighborOptions.includeAcrossStreet}
+                                  onChange={(e) => setBulkNeighborOptions({...bulkNeighborOptions, includeAcrossStreet: e.target.checked})}
+                                  className="mr-2"
+                                />
+                                <span className="text-xs font-medium text-gray-700">Include across street</span>
+                              </label>
+                            </div>
+                          </div>
+                          
+                          <ul className="text-xs text-gray-500 space-y-1">
+                            <li>• Up to {bulkNeighborOptions.maxResults} neighbors per property within {bulkNeighborOptions.radius}m radius</li>
+                            <li>• Limited to first 20 selected properties to manage API usage</li>
+                            <li>• Process may take 2-3 minutes due to rate limiting</li>
+                            <li>• Neighbors will be automatically added to the calculation</li>
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
                   
                   <div className="flex gap-2">
                     <button
-                      onClick={() => setBulkUploadResults(null)}
+                      onClick={() => {
+                        setBulkUploadResults(null);
+                        setSelectedForNeighbors([]);
+                      }}
                       className="bg-white border border-gray-300 px-4 py-2 rounded hover:bg-gray-50"
                     >
                       Cancel
@@ -1201,9 +1708,441 @@ const PVSCalculator = () => {
             </div>
           )}
           
+          {/* Neighbor Preview */}
+          {neighborPreview && (
+            <div className="mb-5">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold text-gray-900">🏘️ Neighbor Properties Preview</h3>
+                  <div className="flex gap-2">
+                    <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
+                      ✓ {neighborPreview.summary.successful} Found Neighbors
+                    </span>
+                    {neighborPreview.summary.noNeighbors > 0 && (
+                      <span className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm font-medium">
+                        ⚠ {neighborPreview.summary.noNeighbors} No Neighbors
+                      </span>
+                    )}
+                    {neighborPreview.summary.failed > 0 && (
+                      <span className="bg-red-100 text-red-800 px-3 py-1 rounded-full text-sm font-medium">
+                        ✗ {neighborPreview.summary.failed} Failed
+                      </span>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Failed Addresses Section */}
+                {neighborPreview.failedAddresses.length > 0 && (
+                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <h4 className="font-semibold text-red-800 mb-3">❌ Addresses That Could Not Be Processed</h4>
+                    <div className="space-y-2">
+                      {neighborPreview.failedAddresses.map((failed, index) => (
+                        <div key={index} className="text-sm">
+                          <span className="font-medium text-red-700">{failed.originalAddress}</span>
+                          <span className="text-red-600 ml-2">- {failed.reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* No Neighbors Found Section */}
+                {neighborPreview.noNeighborsFound.length > 0 && (
+                  <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <h4 className="font-semibold text-yellow-800 mb-3">⚠️ Addresses With No Neighbors Found</h4>
+                    <div className="space-y-2">
+                      {neighborPreview.noNeighborsFound.map((noNeighbors, index) => (
+                        <div key={index} className="text-sm">
+                          <span className="font-medium text-yellow-700">{noNeighbors.originalAddress}</span>
+                          {noNeighbors.validatedAddress && noNeighbors.validatedAddress !== noNeighbors.originalAddress && (
+                            <span className="text-yellow-600 ml-2">(validated as: {noNeighbors.validatedAddress})</span>
+                          )}
+                          <span className="text-yellow-600 ml-2">- No neighbors within {noNeighbors.searchRadius}m</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Tabbed Interface for Multiple Addresses */}
+                {Object.keys(neighborPreview.groups).length > 0 && (
+                  <>
+                    {/* Bulk Actions Bar */}
+                    <div className="bg-blue-50 rounded-lg p-3 mb-4 flex items-center justify-between">
+                      <div className="text-sm text-blue-900">
+                        <span className="font-medium">Quick Actions:</span>
+                        <span className="ml-2">
+                          {Object.keys(neighborPreview.groups).length} addresses with neighbors
+                        </span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            const allSelected = {};
+                            Object.entries(neighborPreview.groups).forEach(([address, group]) => {
+                              allSelected[address] = group.neighbors.map((_, index) => index);
+                            });
+                            setSelectedNeighbors(allSelected);
+                          }}
+                          className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                        >
+                          Select All Neighbors
+                        </button>
+                        <button
+                          onClick={() => setSelectedNeighbors({})}
+                          className="px-3 py-1 bg-white text-gray-700 border border-gray-300 rounded text-sm hover:bg-gray-50"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Address Navigation */}
+                    <div className="border-b border-gray-200 mb-6">
+                      {Object.entries(neighborPreview.groups).length <= 5 ? (
+                        /* Tab Navigation for few addresses */
+                        <nav className="-mb-px flex space-x-2" aria-label="Tabs">
+                          {Object.entries(neighborPreview.groups).map(([address, group], index) => (
+                            <button
+                              key={address}
+                              onClick={() => setActiveTab(index)}
+                              className={`
+                                whitespace-nowrap py-2 px-4 border-b-2 font-medium text-sm transition-colors
+                                ${activeTab === index
+                                  ? 'border-blue-500 text-blue-600'
+                                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                }
+                              `}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="truncate max-w-[200px]" title={address}>
+                                  {address.length > 25 ? address.substring(0, 25) + '...' : address}
+                                </span>
+                                <span className={`
+                                  px-2 py-0.5 rounded-full text-xs font-medium
+                                  ${group.neighbors.length > 0 
+                                    ? 'bg-green-100 text-green-800' 
+                                    : 'bg-gray-100 text-gray-600'}
+                                `}>
+                                  {group.neighbors.length}
+                                </span>
+                                {selectedNeighbors[address]?.length > 0 && (
+                                  <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-xs font-medium">
+                                    ✓ {selectedNeighbors[address].length}
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          ))}
+                        </nav>
+                      ) : (
+                        /* Dropdown Navigation for many addresses */
+                        <div className="flex items-center justify-between py-2">
+                          <div className="flex items-center gap-4">
+                            <label className="text-sm font-medium text-gray-700">Viewing address:</label>
+                            <select
+                              value={activeTab}
+                              onChange={(e) => setActiveTab(parseInt(e.target.value))}
+                              className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[300px]"
+                            >
+                              {Object.entries(neighborPreview.groups).map(([address, group], index) => {
+                                const selectedCount = selectedNeighbors[address]?.length || 0;
+                                const displayText = `${address.length > 50 ? address.substring(0, 50) + '...' : address} (${group.neighbors.length} neighbors${selectedCount > 0 ? `, ${selectedCount} selected` : ''})`;
+                                return (
+                                  <option key={address} value={index}>
+                                    {displayText}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setActiveTab(Math.max(0, activeTab - 1))}
+                              disabled={activeTab === 0}
+                              className={`px-3 py-1 text-sm border rounded ${
+                                activeTab === 0 
+                                  ? 'border-gray-200 text-gray-400 cursor-not-allowed' 
+                                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              ← Previous
+                            </button>
+                            <span className="text-sm text-gray-500">
+                              {activeTab + 1} of {Object.entries(neighborPreview.groups).length}
+                            </span>
+                            <button
+                              onClick={() => setActiveTab(Math.min(Object.entries(neighborPreview.groups).length - 1, activeTab + 1))}
+                              disabled={activeTab === Object.entries(neighborPreview.groups).length - 1}
+                              className={`px-3 py-1 text-sm border rounded ${
+                                activeTab === Object.entries(neighborPreview.groups).length - 1
+                                  ? 'border-gray-200 text-gray-400 cursor-not-allowed'
+                                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              Next →
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Tab Content */}
+                    {(() => {
+                      const entries = Object.entries(neighborPreview.groups);
+                      if (entries.length === 0) return null;
+                      
+                      const [currentAddress, currentGroup] = entries[activeTab] || entries[0];
+                      
+                      return (
+                        <div className="space-y-4">
+                          {/* Address Header */}
+                          <div className="bg-gray-50 rounded-lg p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h4 className="font-semibold text-gray-900 text-lg">📍 {currentAddress}</h4>
+                                {currentGroup.validatedAddress && currentGroup.validatedAddress !== currentAddress && (
+                                  <p className="text-sm text-blue-600 mt-1">
+                                    ✓ Validated as: {currentGroup.validatedAddress}
+                                  </p>
+                                )}
+                                <p className="text-sm text-gray-600 mt-1">
+                                  Found {currentGroup.neighbors.length} neighbors within {currentGroup.searchRadius}m
+                                  {currentGroup.totalFound > currentGroup.neighbors.length && (
+                                    <span className="text-amber-600"> ({currentGroup.totalFound - currentGroup.neighbors.length} excluded due to missing data)</span>
+                                  )}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  onClick={() => {
+                                    if (selectedNeighbors[currentAddress]?.length === currentGroup.neighbors.length) {
+                                      setSelectedNeighbors({
+                                        ...selectedNeighbors,
+                                        [currentAddress]: []
+                                      });
+                                    } else {
+                                      setSelectedNeighbors({
+                                        ...selectedNeighbors,
+                                        [currentAddress]: currentGroup.neighbors.map((_, index) => index)
+                                      });
+                                    }
+                                  }}
+                                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                                    selectedNeighbors[currentAddress]?.length === currentGroup.neighbors.length
+                                      ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                      : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                                  }`}
+                                >
+                                  {selectedNeighbors[currentAddress]?.length === currentGroup.neighbors.length
+                                    ? '✓ All Selected'
+                                    : `Select All (${currentGroup.neighbors.length})`}
+                                </button>
+                                <span className="text-sm text-gray-600 font-medium">
+                                  {selectedNeighbors[currentAddress]?.length || 0} of {currentGroup.neighbors.length} selected
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Neighbors Table */}
+                          {currentGroup.neighbors.length > 0 ? (
+                            <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                              <table className="w-full text-sm">
+                                <thead className="bg-gray-100">
+                                  <tr>
+                                    <th className="p-3 text-left border-b">
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedNeighbors[currentAddress]?.length === currentGroup.neighbors.length}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            setSelectedNeighbors({
+                                              ...selectedNeighbors,
+                                              [currentAddress]: currentGroup.neighbors.map((_, index) => index)
+                                            });
+                                          } else {
+                                            setSelectedNeighbors({
+                                              ...selectedNeighbors,
+                                              [currentAddress]: []
+                                            });
+                                          }
+                                        }}
+                                      />
+                                    </th>
+                                    <th className="p-3 text-left border-b">Address</th>
+                                    <th className="p-3 text-center border-b">Distance/Direction</th>
+                                    <th className="p-3 text-center border-b">Category</th>
+                                    <th className="p-3 text-center border-b">Sq Ft</th>
+                                    <th className="p-3 text-center border-b">Year</th>
+                                    <th className="p-3 text-right border-b">FIRIS Value</th>
+                                    <th className="p-3 text-right border-b">Market Value</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {currentGroup.neighbors.map((neighbor, index) => (
+                                    <tr key={index} className="border-b hover:bg-gray-50">
+                                      <td className="p-3">
+                                        <input
+                                          type="checkbox"
+                                          checked={selectedNeighbors[currentAddress]?.includes(index) || false}
+                                          onChange={(e) => {
+                                            const currentSelected = selectedNeighbors[currentAddress] || [];
+                                            if (e.target.checked) {
+                                              setSelectedNeighbors({
+                                                ...selectedNeighbors,
+                                                [currentAddress]: [...currentSelected, index]
+                                              });
+                                            } else {
+                                              setSelectedNeighbors({
+                                                ...selectedNeighbors,
+                                                [currentAddress]: currentSelected.filter(i => i !== index)
+                                              });
+                                            }
+                                          }}
+                                        />
+                                      </td>
+                                      <td className="p-3 font-medium">{neighbor.address}</td>
+                                      <td className="p-3 text-center">
+                                        {neighbor.distance}m {neighbor.direction}
+                                      </td>
+                                      <td className="p-3 text-center">
+                                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                          neighbor.category === 'immediate' ? 'bg-green-100 text-green-800' :
+                                          neighbor.category === 'across' ? 'bg-blue-100 text-blue-800' :
+                                          neighbor.category === 'adjacent' ? 'bg-yellow-100 text-yellow-800' :
+                                          neighbor.category === 'nearby' ? 'bg-purple-100 text-purple-800' :
+                                          'bg-gray-100 text-gray-800'
+                                        }`}>
+                                          {neighbor.category}
+                                        </span>
+                                      </td>
+                                      <td className="p-3 text-center">
+                                        {neighbor.squareFootage ? parseInt(neighbor.squareFootage).toLocaleString() : 'N/A'}
+                                      </td>
+                                      <td className="p-3 text-center">
+                                        {neighbor.yearBuilt || 'N/A'}
+                                      </td>
+                                      <td className="p-3 text-right font-semibold">
+                                        {neighbor.value ? formatCurrency(neighbor.value) : 'N/A'}
+                                      </td>
+                                      <td className="p-3 text-right text-gray-600">
+                                        {neighbor.marketPrice ? formatCurrency(neighbor.marketPrice) : 
+                                         neighbor.zestimate ? formatCurrency(neighbor.zestimate) : 'N/A'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <div className="text-center py-8 text-gray-500">
+                              No neighbors found for this address
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
+                
+                <div className="mt-6 flex items-center justify-between pt-4 border-t border-gray-200">
+                  <div className="text-sm text-gray-600">
+                    <span className="font-medium">
+                      {Object.values(selectedNeighbors).reduce((total, selected) => total + selected.length, 0)} neighbors selected
+                    </span>
+                    {Object.values(selectedNeighbors).reduce((total, selected) => total + selected.length, 0) > 0 && (
+                      <span className="ml-2">
+                        (Total value: {formatCurrency(
+                          Object.entries(selectedNeighbors).reduce((total, [address, indices]) => {
+                            const group = neighborPreview.groups[address];
+                            return total + indices.reduce((sum, index) => {
+                              return sum + (group.neighbors[index]?.value || 0);
+                            }, 0);
+                          }, 0)
+                        )})
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        setNeighborPreview(null);
+                        setSelectedNeighbors({});
+                        setSelectedForNeighbors([]);
+                        setShowBulkUpload(false);
+                        const fileInput = document.getElementById('bulk-upload-input');
+                        if (fileInput) fileInput.value = '';
+                      }}
+                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={addSelectedNeighborsToList}
+                      disabled={Object.values(selectedNeighbors).reduce((total, selected) => total + selected.length, 0) === 0}
+                      className={`px-6 py-2 rounded-md font-medium transition-colors ${
+                        Object.values(selectedNeighbors).reduce((total, selected) => total + selected.length, 0) > 0
+                          ? 'bg-green-600 text-white hover:bg-green-700'
+                          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      }`}
+                    >
+                      Add {Object.values(selectedNeighbors).reduce((total, selected) => total + selected.length, 0)} Selected Neighbors
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
           {/* Property list */}
           {properties.length > 0 ? (
             <div className="mb-5 overflow-x-auto">
+              {/* Bulk Local Multiplier Update */}
+              <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-semibold text-blue-800 mb-1">Local Cost Adjustment</h4>
+                    <p className="text-sm text-blue-700">
+                      Current multiplier: <span className="font-medium">{properties[0]?.localMultiplier || '1.0'}</span> 
+                      {properties[0]?.localMultiplier > 1 && (
+                        <span className="ml-1">
+                          ({Math.round((parseFloat(properties[0]?.localMultiplier || 1) - 1) * 100)}% higher than baseline)
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <select 
+                      className="px-3 py-2 border border-blue-300 rounded-md text-sm"
+                      onChange={(e) => {
+                        const newMultiplier = e.target.value;
+                        if (newMultiplier !== '') {
+                          const updatedProperties = properties.map(property => ({
+                            ...property,
+                            localMultiplier: parseFloat(newMultiplier),
+                            value: calculateFIRISValue({
+                              ...property,
+                              localMultiplier: parseFloat(newMultiplier)
+                            })
+                          }));
+                          setProperties(updatedProperties);
+                        }
+                      }}
+                      defaultValue=""
+                    >
+                      <option value="">Select multiplier for all properties</option>
+                      <option value="1.0">1.0 - Baseline costs</option>
+                      <option value="1.2">1.2 - 20% higher costs</option>
+                      <option value="1.4">1.4 - 40% higher costs</option>
+                      <option value="1.6">1.6 - 60% higher costs</option>
+                      <option value="1.8">1.8 - 80% higher costs</option>
+                      <option value="2.0">2.0 - 100% higher costs</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              
               {properties.some(p => !p.squareFootage || !p.yearBuilt) && (
                 <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                   <div className="flex items-center">
@@ -1589,6 +2528,29 @@ const PVSCalculator = () => {
               <span>Property Replacement Value Preserved (FIRIS):</span>
               <span className="font-bold">{formatCurrency(pvsScore.totalPropertyValue)}</span>
             </div>
+            
+            {/* Show local multiplier impact if any properties have multiplier > 1 */}
+            {(() => {
+              const hasAdjustments = properties.some(p => (p.localMultiplier || 1) > 1);
+              if (hasAdjustments) {
+                const avgMultiplier = properties.reduce((sum, p) => sum + (p.localMultiplier || 1), 0) / properties.length;
+                const baselineValue = properties.reduce((sum, p) => {
+                  const multiplier = p.localMultiplier || 1;
+                  return sum + (p.value ? p.value / multiplier : 0);
+                }, 0);
+                const adjustment = pvsScore.totalPropertyValue - baselineValue;
+                
+                return (
+                  <div className="flex justify-between mb-2.5 text-sm text-blue-600">
+                    <span className="pl-4">
+                      ↳ Local cost adjustment (avg. {avgMultiplier.toFixed(1)}x = {Math.round((avgMultiplier - 1) * 100)}% higher):
+                    </span>
+                    <span className="font-medium">+{formatCurrency(adjustment)}</span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
             
             <div className="flex justify-between mb-2.5">
               <span>Annual Operating Cost:</span>
