@@ -12,7 +12,7 @@ const NeighborLookup = ({ onNeighborsFound }) => {
   const [searchOptions, setSearchOptions] = useState({
     radius: 50,
     includeAcrossStreet: true,
-    maxResults: 8  // Reduced to save API calls
+    maxResults: 15  // Default to 15 for more results
   });
 
   const zillowService = new ZillowService();
@@ -149,7 +149,7 @@ const NeighborLookup = ({ onNeighborsFound }) => {
               value={searchOptions.maxResults}
               onChange={(e) => setSearchOptions({...searchOptions, maxResults: parseInt(e.target.value)})}
               min="5"
-              max="15"
+              max="50"
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>

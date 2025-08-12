@@ -140,6 +140,9 @@ class ZillowService {
         };
       }
 
+      // Log the number of nearby homes returned by Zillow API
+      console.log(`Zillow API returned ${propertyDetails.nearbyHomes.length} nearby homes`);
+
       // Process nearby homes into our expected format
       const neighbors = propertyDetails.nearbyHomes.map(home => {
         const distance = this.calculateDistance(
@@ -232,6 +235,7 @@ class ZillowService {
 
       // Limit results
       const maxResults = options.maxResults || 10;
+      console.log(`Limiting results from ${filteredNeighbors.length} filtered neighbors to max ${maxResults}`);
       const limitedNeighbors = filteredNeighbors.slice(0, maxResults);
 
       // Categorize neighbors

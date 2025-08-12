@@ -394,7 +394,7 @@ const PVSCalculator = () => {
         propertyType: propertyData.propertyType || 'residential',
         structureType: propertyData.structureType || 'single_family',
         yearBuilt: propertyData.yearBuilt || '',
-        squareFootage: propertyData.squareFootage || '',
+        squareFootage: (propertyData.squareFootage || '').replace(/,/g, ''), // Remove commas from numbers
         stories: propertyData.stories || '1',
         constructionType: propertyData.constructionType || 'wood_frame',
         roofType: propertyData.roofType || 'composition',
@@ -483,8 +483,8 @@ const PVSCalculator = () => {
   // Download CSV template
   const downloadCSVTemplate = () => {
     const csvContent = `address,incidentId,propertyType,structureType,yearBuilt,squareFootage,stories,constructionType,condition,localMultiplier
-"123 Main St, Anytown USA",INC-2024-001,residential,single_family,1995,2400,2,wood_frame,good,1.0
-"456 Oak Ave, Anytown USA",INC-2024-002,commercial,office,2010,5000,3,steel_frame,excellent,1.2`;
+"123 Main St, Anytown USA",INC-2024-001,residential,single_family,1995,"2,400",2,wood_frame,good,1.0
+"456 Oak Ave, Anytown USA",INC-2024-002,commercial,office,2010,"5,000",3,steel_frame,excellent,1.2`;
     
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -1125,6 +1125,8 @@ const PVSCalculator = () => {
                 <p className="text-sm text-gray-600 mt-2">
                   Required columns: address, squareFootage, yearBuilt. 
                   Optional: incidentId, propertyType, structureType, stories, constructionType, condition, localMultiplier
+                  <br />
+                  <span className="text-xs text-blue-600">Note: Numbers with commas (e.g., "1,500") should be quoted in the CSV file</span>
                 </p>
               </div>
               
