@@ -13,7 +13,8 @@
       "WebFetch(domain:zillow-com1.p.rapidapi.com)",
       "Bash(npm install:*)",
       "Bash(lsof:*)",
-      "Bash(ss:*)"
+      "Bash(ss:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": []
   }

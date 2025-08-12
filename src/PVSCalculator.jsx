@@ -51,7 +51,7 @@ const PVSCalculator = () => {
   // Constants
   const VSL = 7000000; // Value of Statistical Life: $7 million
   
-  // FIRIS Property Value Calculation Tables
+  // NFIRS Property Value Calculation Tables
   const baseCostPerSqFt = {
     residential: {
       single_family: 120,
@@ -106,9 +106,9 @@ const PVSCalculator = () => {
     999: 0.60 // 50+ years
   };
   
-  // Calculate FIRIS property value
-  const calculateFIRISValue = (propertyData) => {
-    // Check if we have required data for FIRIS calculation
+  // Calculate NFIRS property value
+  const calculateNFIRSValue = (propertyData) => {
+    // Check if we have required data for NFIRS calculation
     if (!propertyData.squareFootage || !propertyData.yearBuilt) {
       // Return null to indicate calculation not possible
       return null;
@@ -147,14 +147,14 @@ const PVSCalculator = () => {
     return Math.round(finalValue);
   };
   
-  // Add a property using FIRIS calculation
+  // Add a property using NFIRS calculation
   const addProperty = () => {
     if (!propertyForm.address || !propertyForm.squareFootage || !propertyForm.yearBuilt) {
       alert('Please fill in required fields: Address, Square Footage, and Year Built');
       return;
     }
     
-    const propertyValue = calculateFIRISValue(propertyForm);
+    const propertyValue = calculateNFIRSValue(propertyForm);
     
     setProperties([
       ...properties,
@@ -195,11 +195,11 @@ const PVSCalculator = () => {
     const newProperties = [...properties];
     newProperties[index] = { ...newProperties[index], [field]: value };
     
-    // Recalculate FIRIS value if we now have complete data
+    // Recalculate NFIRS value if we now have complete data
     if (field === 'yearBuilt' || field === 'squareFootage') {
       const updatedProperty = newProperties[index];
       if (updatedProperty.yearBuilt && updatedProperty.squareFootage) {
-        const newValue = calculateFIRISValue(updatedProperty);
+        const newValue = calculateNFIRSValue(updatedProperty);
         newProperties[index].value = newValue;
       }
     }
@@ -220,7 +220,7 @@ const PVSCalculator = () => {
         bathrooms: neighbor.bathrooms
       });
       
-      // Use real Zillow building data for accurate FIRIS calculation
+      // Use real Zillow building data for accurate NFIRS calculation
       const hasRealZillowData = neighbor.price || neighbor.zestimate || neighbor.livingArea;
       
       if (hasRealZillowData) {
@@ -228,7 +228,7 @@ const PVSCalculator = () => {
         const hasYearBuilt = neighbor.yearBuilt && neighbor.yearBuilt !== null;
         const hasSquareFootage = neighbor.livingArea && neighbor.livingArea > 0;
         
-        // Use Zillow building data for accurate FIRIS inputs
+        // Use Zillow building data for accurate NFIRS inputs
         const property = {
           address: neighbor.address,
           incidentId: '',
@@ -251,8 +251,8 @@ const PVSCalculator = () => {
           missingSquareFootage: !hasSquareFootage
         };
         
-        // Calculate FIRIS replacement cost using accurate Zillow building data
-        const value = calculateFIRISValue(property);
+        // Calculate NFIRS replacement cost using accurate Zillow building data
+        const value = calculateNFIRSValue(property);
         
         return {
           ...property,
@@ -260,7 +260,7 @@ const PVSCalculator = () => {
           id: Date.now() + Math.random()
         };
       } else {
-        // Fallback to FIRIS calculation if no real data available
+        // Fallback to NFIRS calculation if no real data available
         const fields = neighbor.fields || {};
         
         const property = {
@@ -276,10 +276,10 @@ const PVSCalculator = () => {
           exteriorWalls: 'wood_siding',
           condition: fields.condition || estimateCondition(fields.yearbuilt),
           localMultiplier: '1.0',
-          dataSource: 'firis' // Flag to identify this was estimated
+          dataSource: 'nfirs' // Flag to identify this was estimated
         };
         
-        const value = calculateFIRISValue(property);
+        const value = calculateNFIRSValue(property);
         
         return {
           ...property,
@@ -439,7 +439,7 @@ const PVSCalculator = () => {
       }
 
       try {
-        const value = calculateFIRISValue(property);
+        const value = calculateNFIRSValue(property);
         const newProperty = {
           ...property,
           value,
@@ -447,7 +447,7 @@ const PVSCalculator = () => {
         };
         properties.push(newProperty);
       } catch (error) {
-        errors.push(`Row ${i + 1}: Error calculating FIRIS value - ${error.message}`);
+        errors.push(`Row ${i + 1}: Error calculating NFIRS value - ${error.message}`);
       }
     }
     return { properties, errors };
@@ -587,7 +587,7 @@ const PVSCalculator = () => {
         });
         
         if (neighborData.neighbors && neighborData.neighbors.length > 0) {
-          // Process neighbors and add FIRIS values
+          // Process neighbors and add NFIRS values
           const processedNeighbors = [];
           
           for (const neighbor of neighborData.neighbors) {
@@ -655,7 +655,7 @@ const PVSCalculator = () => {
                 category: enhancedNeighbor.category
               };
               
-              const value = calculateFIRISValue(neighborProperty);
+              const value = calculateNFIRSValue(neighborProperty);
               
               processedNeighbors.push({
                 ...neighborProperty,
@@ -771,7 +771,7 @@ const PVSCalculator = () => {
         const hasYearBuilt = neighbor.yearBuilt && neighbor.yearBuilt !== null;
         const hasSquareFootage = neighbor.livingArea && neighbor.livingArea > 0;
         
-        // Use Zillow building data for accurate FIRIS inputs
+        // Use Zillow building data for accurate NFIRS inputs
         const property = {
           address: neighbor.address,
           incidentId: '',
@@ -789,7 +789,7 @@ const PVSCalculator = () => {
           id: Date.now() + Math.random()
         };
         
-        const value = calculateFIRISValue(property);
+        const value = calculateNFIRSValue(property);
         return {
           ...property,
           value
@@ -813,7 +813,7 @@ const PVSCalculator = () => {
           id: Date.now() + Math.random()
         };
         
-        const value = calculateFIRISValue(property);
+        const value = calculateNFIRSValue(property);
         return {
           ...property,
           value
@@ -847,90 +847,6 @@ const PVSCalculator = () => {
     if (fileInput) fileInput.value = '';
   };
 
-  // Fetch neighbors for properties marked with include_neighbors
-  const fetchNeighborsForProperties = async (propertiesNeedingNeighbors, allProperties) => {
-    const zillowService = new ZillowService();
-    let allNeighbors = [];
-    
-    for (let i = 0; i < propertiesNeedingNeighbors.length; i++) {
-      const property = propertiesNeedingNeighbors[i];
-      
-      // Update progress
-      setNeighborFetchProgress({
-        total: propertiesNeedingNeighbors.length,
-        current: i + 1,
-        status: `Fetching neighbors for ${property.address} (${i + 1}/${propertiesNeedingNeighbors.length})...`
-      });
-      
-      try {
-        // Search for the property to get its details
-        const searchResults = await zillowService.searchProperties(property.address);
-        
-        if (searchResults.props && searchResults.props.length > 0) {
-          const targetProperty = searchResults.props[0];
-          
-          // Get neighbors for this property using bulk neighbor options
-          const neighborData = await zillowService.getNeighborsByAddress(targetProperty, {
-            radius: bulkNeighborOptions.radius,
-            includeAcrossStreet: bulkNeighborOptions.includeAcrossStreet,
-            maxResults: bulkNeighborOptions.maxResults
-          });
-          
-          if (neighborData.neighbors && neighborData.neighbors.length > 0) {
-            // Process neighbors and add FIRIS values
-            const processedNeighbors = neighborData.neighbors.map(neighbor => {
-              const hasRealData = neighbor.price || neighbor.zestimate || neighbor.livingArea;
-              
-              if (hasRealData) {
-                const neighborProperty = {
-                  address: neighbor.address,
-                  incidentId: property.incidentId || '', // Use parent's incident ID
-                  propertyType: 'residential',
-                  structureType: 'single_family',
-                  yearBuilt: neighbor.yearBuilt ? neighbor.yearBuilt.toString() : null,
-                  squareFootage: neighbor.livingArea ? neighbor.livingArea.toString() : null,
-                  stories: '1',
-                  constructionType: 'wood_frame',
-                  roofType: 'composition',
-                  exteriorWalls: 'wood_siding',
-                  condition: 'good',
-                  localMultiplier: '1.0',
-                  marketPrice: neighbor.price,
-                  zestimate: neighbor.zestimate,
-                  dataSource: 'zillow-auto',
-                  parentProperty: property.address // Track which property this neighbor belongs to
-                };
-                
-                const value = calculateFIRISValue(neighborProperty);
-                
-                return {
-                  ...neighborProperty,
-                  value,
-                  id: Date.now() + Math.random()
-                };
-              }
-              return null;
-            }).filter(n => n !== null);
-            
-            allNeighbors = [...allNeighbors, ...processedNeighbors];
-          }
-        }
-        
-        // Add delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay between properties
-        
-      } catch (error) {
-        console.error(`Error fetching neighbors for ${property.address}:`, error);
-        // Continue with next property even if one fails
-      }
-    }
-    
-    // Add all neighbors to the properties list
-    if (allNeighbors.length > 0) {
-      setProperties([...allProperties, ...allNeighbors]);
-      console.log(`Added ${allNeighbors.length} neighbor properties from ${propertiesNeedingNeighbors.length} target properties`);
-    }
-  };
 
   // Download CSV template
   const downloadCSVTemplate = () => {
@@ -943,7 +859,7 @@ const PVSCalculator = () => {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'firis_bulk_upload_template.csv';
+    a.download = 'nfirs_bulk_upload_template.csv';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1022,7 +938,7 @@ const PVSCalculator = () => {
     
     doc.setFontSize(12);
     doc.setFont(undefined, 'normal');
-    doc.text('FIRIS Emergency Response Standards', pageWidth / 2, 35, { align: 'center' });
+    doc.text('NFIRS Emergency Response Standards', pageWidth / 2, 35, { align: 'center' });
     doc.text(`Report Generated: ${currentDate}`, pageWidth / 2, 42, { align: 'center' });
 
     // Add a line separator
@@ -1093,7 +1009,7 @@ const PVSCalculator = () => {
     
     const formulaData = [
       ['Lives Saved Value', `${livesSaved} lives × $7,000,000 VSL`, formatCurrency(pvsScore.livesSavedValue)],
-      ['Property Replacement Value', 'FIRIS Calculated', formatCurrency(pvsScore.totalPropertyValue)],
+      ['Property Replacement Value', 'NFIRS Calculated', formatCurrency(pvsScore.totalPropertyValue)],
       ['Total Value Preserved', '', formatCurrency(pvsScore.livesSavedValue + pvsScore.totalPropertyValue)],
       ['Annual Operating Cost', '', formatCurrency(pvsScore.budget)],
       ['Efficiency Multiplier', '', pvsScore.efficiency],
@@ -1133,10 +1049,7 @@ const PVSCalculator = () => {
       margin: { left: margin, right: margin },
       styles: { fontSize: 10, font: 'helvetica' },
       didParseCell: function (data) {
-        // Ensure proper text rendering for all cells
-        if (data.cell.text && typeof data.cell.text === 'string') {
-          data.cell.text = data.cell.text;
-        }
+        // Ensure proper text rendering for all cells - no action needed, jsPDF handles this automatically
       }
     });
 
@@ -1151,14 +1064,14 @@ const PVSCalculator = () => {
     // Properties Table
     doc.setFontSize(16);
     doc.setFont(undefined, 'bold');
-    doc.text('Properties Protected - FIRIS Valuation', margin, yPosition);
+    doc.text('Properties Protected - NFIRS Valuation', margin, yPosition);
     yPosition += 10;
 
     // Prepare properties data for table
     const propertiesData = properties.map(property => {
       const sqft = property.squareFootage ? parseInt(property.squareFootage).toLocaleString() : 'N/A';
       const year = property.yearBuilt || 'N/A';
-      const firisValue = property.value ? formatCurrency(property.value) : 'N/A';
+      const nfirsValue = property.value ? formatCurrency(property.value) : 'N/A';
       const marketValue = property.marketPrice ? formatCurrency(property.marketPrice) : 
                          property.zestimate ? formatCurrency(property.zestimate) : 'N/A';
       
@@ -1166,19 +1079,19 @@ const PVSCalculator = () => {
         property.address,
         sqft,
         year,
-        firisValue,
+        nfirsValue,
         marketValue
       ];
     });
 
     // Add total row
-    const totalFIRIS = properties.reduce((sum, p) => sum + (p.value || 0), 0);
+    const totalNFIRS = properties.reduce((sum, p) => sum + (p.value || 0), 0);
     const totalMarketValue = properties.reduce((sum, p) => sum + (p.marketPrice || p.zestimate || 0), 0);
     propertiesData.push([
       'TOTAL',
       '',
       '',
-      formatCurrency(totalFIRIS),
+      formatCurrency(totalNFIRS),
       formatCurrency(totalMarketValue)
     ]);
 
@@ -1189,7 +1102,7 @@ const PVSCalculator = () => {
 
     autoTable(doc, {
       startY: yPosition,
-      head: [['Address', 'Sq Ft', 'Year', 'FIRIS Value', 'Market Value']],
+      head: [['Address', 'Sq Ft', 'Year', 'NFIRS Value', 'Market Value']],
       body: propertiesData,
       theme: 'grid',
       headStyles: { fillColor: [59, 130, 246], textColor: 255 },
@@ -1220,7 +1133,7 @@ const PVSCalculator = () => {
       doc.setFontSize(9);
       doc.setFont(undefined, 'italic');
       doc.setTextColor(100, 100, 100);
-      doc.text('Methodology: FIRIS replacement costs calculated using construction type, square footage, age depreciation,', margin, footerY - 20);
+      doc.text('Methodology: NFIRS replacement costs calculated using construction type, square footage, age depreciation,', margin, footerY - 20);
       doc.text('condition factors, and local market multipliers per fire department emergency response standards.', margin, footerY - 15);
       doc.text('Market values sourced from Zillow. All estimates for planning purposes only.', margin, footerY - 10);
     }
@@ -1235,7 +1148,7 @@ const PVSCalculator = () => {
     }
 
     // Save the PDF
-    doc.save(`FIRIS_PVS_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`NFIRS_PVS_Report_${new Date().toISOString().split('T')[0]}.pdf`);
   };
   
   return (
@@ -1247,7 +1160,7 @@ const PVSCalculator = () => {
           </h1>
           <div className="max-w-3xl mx-auto">
             <p className="text-xl text-gray-600 mb-2">
-              FIRIS Emergency Response Standards
+              NFIRS Emergency Response Standards
             </p>
             <p className="text-gray-500">
               Calculate property replacement costs and public value scores for emergency response planning
@@ -1268,7 +1181,7 @@ const PVSCalculator = () => {
                   </div>
                   <div className={`text-sm font-medium ${step >= num ? 'text-blue-600' : 'text-gray-500'}`}>
                     {num === 1 ? 'Lives Saved' : 
-                     num === 2 ? 'Properties (FIRIS)' : 
+                     num === 2 ? 'Properties (NFIRS)' : 
                      num === 3 ? 'Budget & Efficiency' : 'Results'}
                   </div>
                 </div>
@@ -1319,10 +1232,10 @@ const PVSCalculator = () => {
           </div>
         )}
       
-        {/* Step 2: Properties with FIRIS Data */}
+        {/* Step 2: Properties with NFIRS Data */}
         {step === 2 && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 lg:p-12">
-            <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-6">Step 2: Properties Saved (FIRIS Method)</h2>
+            <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-6">Step 2: Properties Saved (NFIRS Method)</h2>
           
             <div className="mb-8">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -1356,13 +1269,13 @@ const PVSCalculator = () => {
                 </button>
               </div>
               <p className="text-gray-600 bg-blue-50 p-4 rounded-lg">
-                Add properties manually or upload multiple properties via CSV using FIRIS emergency response standards
+                Add properties manually or upload multiple properties via CSV using NFIRS emergency response standards
               </p>
             </div>
           
           {showAddForm && (
             <div className="border border-gray-200 rounded-lg p-5 mb-5 bg-gray-50">
-              <h3 className="text-lg font-bold mb-5">Add Property - Calculate FIRIS Replacement Cost</h3>
+              <h3 className="text-lg font-bold mb-5">Add Property - Calculate NFIRS Replacement Cost</h3>
               
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
@@ -1557,7 +1470,7 @@ const PVSCalculator = () => {
                 <div className="bg-yellow-100 px-3 py-2 rounded text-sm">
                   <strong>Estimated Replacement Cost: </strong>
                   {propertyForm.squareFootage && propertyForm.yearBuilt ? 
-                    formatCurrency(calculateFIRISValue(propertyForm)) : 
+                    formatCurrency(calculateNFIRSValue(propertyForm)) : 
                     'Fill required fields to see estimate'
                   }
                 </div>
@@ -1682,7 +1595,7 @@ const PVSCalculator = () => {
                               <th className="p-2 text-center border">Type</th>
                               <th className="p-2 text-center border">Sq Ft</th>
                               <th className="p-2 text-center border">Year</th>
-                              <th className="p-2 text-right border">FIRIS Value</th>
+                              <th className="p-2 text-right border">NFIRS Value</th>
                               <th className="p-2 text-right border">Market Value</th>
                             </tr>
                           </thead>
@@ -2036,7 +1949,7 @@ const PVSCalculator = () => {
                                     <th className="p-3 text-center border-b">Category</th>
                                     <th className="p-3 text-center border-b">Sq Ft</th>
                                     <th className="p-3 text-center border-b">Year</th>
-                                    <th className="p-3 text-right border-b">FIRIS Value</th>
+                                    <th className="p-3 text-right border-b">NFIRS Value</th>
                                     <th className="p-3 text-right border-b">Market Value</th>
                                   </tr>
                                 </thead>
@@ -2182,7 +2095,7 @@ const PVSCalculator = () => {
                           const updatedProperties = properties.map(property => ({
                             ...property,
                             localMultiplier: parseFloat(newMultiplier),
-                            value: calculateFIRISValue({
+                            value: calculateNFIRSValue({
                               ...property,
                               localMultiplier: parseFloat(newMultiplier)
                             })
@@ -2211,7 +2124,7 @@ const PVSCalculator = () => {
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                     </svg>
                     <span className="text-sm font-medium text-amber-800">
-                      Action Required: Complete missing building data in red-highlighted fields below for accurate FIRIS calculations
+                      Action Required: Complete missing building data in red-highlighted fields below for accurate NFIRS calculations
                     </span>
                   </div>
                 </div>
@@ -2311,7 +2224,7 @@ const PVSCalculator = () => {
                           </button>
                         )}
                         {!property.squareFootage && (
-                          <div className="text-xs text-red-600 mt-1">Required for FIRIS</div>
+                          <div className="text-xs text-red-600 mt-1">Required for NFIRS</div>
                         )}
                       </td>
                       <td className="p-3 text-center border-b border-gray-200 text-sm">
@@ -2387,14 +2300,14 @@ const PVSCalculator = () => {
                           </button>
                         )}
                         {!property.yearBuilt && (
-                          <div className="text-xs text-red-600 mt-1">Required for FIRIS</div>
+                          <div className="text-xs text-red-600 mt-1">Required for NFIRS</div>
                         )}
                       </td>
                       <td className="p-3 text-right border-b border-gray-200 text-sm font-bold">
                         {property.value ? formatCurrency(property.value) : 
                          <span className="text-gray-400 italic">Cannot calculate - missing data</span>}
                         <div className="text-xs text-gray-500 mt-1">
-                          <span className="text-blue-600">FIRIS Estimate</span>
+                          <span className="text-blue-600">NFIRS Estimate</span>
                           {property.dataSource === 'zillow' && (property.marketPrice || property.zestimate) && (
                             <div className="text-green-600 mt-1">
                               {property.marketPrice ? 
@@ -2451,7 +2364,7 @@ const PVSCalculator = () => {
             <div className="text-center p-10 bg-gray-50 border border-gray-200 rounded-lg mb-5">
               <p className="text-gray-500 mb-2">No properties added yet.</p>
               <p className="text-gray-500 text-sm">
-                Click "Add Property" to enter property details and calculate FIRIS replacement cost
+                Click "Add Property" to enter property details and calculate NFIRS replacement cost
               </p>
             </div>
           )}
@@ -2470,7 +2383,7 @@ const PVSCalculator = () => {
                     Missing Required Data - Cannot Proceed to PVS Calculation
                   </h3>
                   <div className="mt-2 text-sm text-red-700">
-                    <p>FIRIS replacement cost calculations require complete building data. Please either:</p>
+                    <p>NFIRS replacement cost calculations require complete building data. Please either:</p>
                     <ul className="list-disc list-inside mt-2 space-y-1">
                       <li><strong>Enter missing data</strong> in the red-highlighted fields above, or</li>
                       <li><strong>Remove properties</strong> with incomplete data from the list</li>
@@ -2587,7 +2500,7 @@ const PVSCalculator = () => {
             </div>
           
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-5 mb-8">
-            <h3 className="text-lg font-bold mb-4">Formula Breakdown (FIRIS Method)</h3>
+            <h3 className="text-lg font-bold mb-4">Formula Breakdown (NFIRS Method)</h3>
             
             <div className="flex justify-between mb-2.5">
               <span>Lives Saved × Value of Statistical Life:</span>
@@ -2595,7 +2508,7 @@ const PVSCalculator = () => {
             </div>
             
             <div className="flex justify-between mb-2.5">
-              <span>Property Replacement Value Preserved (FIRIS):</span>
+              <span>Property Replacement Value Preserved (NFIRS):</span>
               <span className="font-bold">{formatCurrency(pvsScore.totalPropertyValue)}</span>
             </div>
             
@@ -2637,7 +2550,7 @@ const PVSCalculator = () => {
                 Formula: ((Lives Saved Value + Property Value) / Budget) × Efficiency
               </div>
               <div className="text-sm text-gray-500">
-                Property values calculated using FIRIS standard methodology including building dimensions, 
+                Property values calculated using NFIRS standard methodology including building dimensions, 
                 construction type, age depreciation, condition factors, and local market adjustments.
               </div>
             </div>
@@ -2649,7 +2562,7 @@ const PVSCalculator = () => {
                 className="flex items-center px-8 py-3 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-semibold text-lg transition-colors"
               >
                 <span className="mr-2">📄</span>
-                Download FIRIS Report (PDF)
+                Download NFIRS Report (PDF)
               </button>
               <button
                 onClick={resetCalculator}
@@ -2668,11 +2581,11 @@ const PVSCalculator = () => {
             <h4 className="text-xl font-bold text-gray-900 mb-6">Data Sources & Methodology</h4>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 text-gray-700">
               <div>
-                <p className="mb-4"><strong className="text-gray-900">Property Values:</strong> Market data sourced from Zillow. Replacement costs calculated using FIRIS (Fire Insurance Rating Information System) emergency response standards.</p>
+                <p className="mb-4"><strong className="text-gray-900">Property Values:</strong> Market data sourced from Zillow. Replacement costs calculated using NFIRS (National Fire Incident Reporting System) emergency response standards.</p>
                 <p className="mb-4"><strong className="text-gray-900">Market Estimates:</strong> Zillow Zestimate® is an automated valuation model (AVM) that estimates market value. Actual property values may vary.</p>
               </div>
               <div>
-                <p className="mb-4"><strong className="text-gray-900">FIRIS Calculations:</strong> Based on construction type, square footage, age depreciation, condition factors, and local market multipliers per fire department standards.</p>
+                <p className="mb-4"><strong className="text-gray-900">NFIRS Calculations:</strong> Based on construction type, square footage, age depreciation, condition factors, and local market multipliers per fire department standards.</p>
                 <p><strong className="text-gray-900">Disclaimer:</strong> All estimates are for informational and planning purposes only. Actual replacement costs and market values may differ. Property data accuracy depends on source availability and currency.</p>
               </div>
             </div>
