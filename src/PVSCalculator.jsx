@@ -2308,25 +2308,17 @@ const PVSCalculator = () => {
                          <span className="text-gray-400 italic">Cannot calculate - missing data</span>}
                         <div className="text-xs text-gray-500 mt-1">
                           <span className="text-blue-600">NFIRS Estimate</span>
-                          {property.dataSource === 'zillow' && (property.marketPrice || property.zestimate) && (
-                            <div className="text-green-600 mt-1">
-                              {property.marketPrice ? 
-                                `Market: ${formatCurrency(property.marketPrice)}` : 
-                                `Zestimate: ${formatCurrency(property.zestimate)}`
-                              }
-                            </div>
-                          )}
-                          {property.dataSource === 'zillow' && (
-                            <div className="text-xs text-gray-400 mt-1">
-                              Data source: Zillow
-                            </div>
-                          )}
                         </div>
                       </td>
                       <td className="p-3 text-right border-b border-gray-200 text-sm">
                         {property.marketPrice ? formatCurrency(property.marketPrice) : 
                          property.zestimate ? formatCurrency(property.zestimate) : 
                          <span className="text-gray-400 italic">N/A</span>}
+                        {property.dataSource === 'zillow' && (property.marketPrice || property.zestimate) && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            Data source: Zillow
+                          </div>
+                        )}
                       </td>
                       <td className="p-3 text-center border-b border-gray-200">
                         <button
