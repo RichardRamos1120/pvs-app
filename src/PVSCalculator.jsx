@@ -212,7 +212,6 @@ const PVSCalculator = () => {
   // Handle neighbors found from neighbor lookup - Enhanced with Realtor.com fallback
   const handleNeighborsFound = (neighbors) => {
     const processNeighborsAsync = async () => {
-      const realtorService = new RealtorService();
       const enhancementService = new PropertyEnhancementService();
       
       const newProperties = await Promise.all(neighbors.map(async (neighbor) => {
