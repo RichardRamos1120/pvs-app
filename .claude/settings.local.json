@@ -14,7 +14,9 @@
       "Bash(npm install:*)",
       "Bash(lsof:*)",
       "Bash(ss:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "WebSearch",
+      "Bash(rm:*)"
     ],
     "deny": []
   }

@@ -1,7 +1,7 @@
 # Neighbor Lookup Feature
 
 ## Overview
-The Neighbor Lookup feature allows users to find all properties adjacent to and across from a target address using the Regrid Parcel API.
+The Neighbor Lookup feature allows users to find all properties adjacent to and across from a target address using the Zillow API.
 
 ## Key Features
 
@@ -58,18 +58,18 @@ For each neighboring property, you get:
 ### Components
 - **AddressAutocomplete.jsx**: Handles address search and suggestions
 - **NeighborLookup.jsx**: Main UI for neighbor search
-- **RegridService.js**: API integration with Regrid
+- **ZillowService.js**: API integration with Zillow
 
 ### API Endpoints Used
-- `/api/v2/parcels/typeahead`: For address autocomplete
-- `/api/v2/parcels/address`: For address geocoding
-- `/api/v2/parcels/point`: For finding neighbors by coordinates
+- Zillow property search endpoint for address autocomplete
+- Zillow property details endpoint for property information
+- Zillow nearby homes endpoint for finding neighbors
 
 ### Search Strategy
-1. User types address → Typeahead API returns suggestions
-2. User selects address → System gets parcel geometry
-3. Calculate center point of selected parcel
-4. Use point + radius search to find all nearby parcels
+1. User types address → Zillow API returns suggestions
+2. User selects address → System gets property details
+3. Fetch nearby homes from Zillow API
+4. Calculate distances and directions to neighbors
 5. Filter and categorize results by distance
 
 ## Example Usage

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import NeighborLookup from './components/NeighborLookup';
 import ZillowService from './services/zillowService';
+import RealtorService from './services/realtorService';
+import PropertyEnhancementService from './services/propertyEnhancementService';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -207,90 +209,111 @@ const PVSCalculator = () => {
     setProperties(newProperties);
   };
 
-  // Handle neighbors found from neighbor lookup
+  // Handle neighbors found from neighbor lookup - Enhanced with Realtor.com fallback
   const handleNeighborsFound = (neighbors) => {
-    const newProperties = neighbors.map(neighbor => {
-      console.log('Processing neighbor from Zillow:', neighbor.address);
-      console.log('Available Zillow data:', {
-        price: neighbor.price,
-        zestimate: neighbor.zestimate,
-        livingArea: neighbor.livingArea,
-        yearBuilt: neighbor.yearBuilt,
-        bedrooms: neighbor.bedrooms,
-        bathrooms: neighbor.bathrooms
-      });
+    const processNeighborsAsync = async () => {
+      const realtorService = new RealtorService();
+      const enhancementService = new PropertyEnhancementService();
       
-      // Use real Zillow building data for accurate NFIRS calculation
-      const hasRealZillowData = neighbor.price || neighbor.zestimate || neighbor.livingArea;
-      
-      if (hasRealZillowData) {
-        // Check what data is actually available from Zillow
-        const hasYearBuilt = neighbor.yearBuilt && neighbor.yearBuilt !== null;
-        const hasSquareFootage = neighbor.livingArea && neighbor.livingArea > 0;
-        
-        // Use Zillow building data for accurate NFIRS inputs
-        const property = {
-          address: neighbor.address,
-          incidentId: '',
-          propertyType: 'residential',
-          structureType: 'single_family',
-          yearBuilt: hasYearBuilt ? neighbor.yearBuilt.toString() : null, // Don't fake missing data
-          squareFootage: hasSquareFootage ? neighbor.livingArea.toString() : null, // Don't fake missing data
-          stories: '1',
-          constructionType: 'wood_frame',
-          roofType: 'composition',
-          exteriorWalls: 'wood_siding',
-          condition: 'good',
-          localMultiplier: '1.0',
-          // Store the real market data for display
-          marketPrice: neighbor.price,
+      const newProperties = await Promise.all(neighbors.map(async (neighbor) => {
+        console.log('Processing neighbor:', neighbor.address);
+        console.log('Available Zillow data:', {
+          price: neighbor.price,
           zestimate: neighbor.zestimate,
-          dataSource: 'zillow', // Flag to identify this came from real data
-          // Track what data is missing for transparency
-          missingYearBuilt: !hasYearBuilt,
-          missingSquareFootage: !hasSquareFootage
-        };
+          livingArea: neighbor.livingArea,
+          yearBuilt: neighbor.yearBuilt,
+          bedrooms: neighbor.bedrooms,
+          bathrooms: neighbor.bathrooms
+        });
         
-        // Calculate NFIRS replacement cost using accurate Zillow building data
-        const value = calculateNFIRSValue(property);
+        // Use real Zillow building data for accurate NFIRS calculation
+        const hasRealZillowData = neighbor.price || neighbor.zestimate || neighbor.livingArea;
         
-        return {
-          ...property,
-          value: value, // Can be null if calculation not possible
-          id: Date.now() + Math.random()
-        };
-      } else {
-        // Fallback to NFIRS calculation if no real data available
-        const fields = neighbor.fields || {};
-        
-        const property = {
-          address: neighbor.address,
-          incidentId: '',
-          propertyType: fields.usecode ? mapUseCodeToPropertyType(fields.usecode) : 'residential',
-          structureType: 'single_family',
-          yearBuilt: fields.yearbuilt || fields.yearbuilt1 || estimateYearBuilt(neighbor.address),
-          squareFootage: fields.sqft || fields.improvement_value ? estimateSquareFootage(fields.improvement_value) : estimateSquareFootageByAddress(neighbor.address),
-          stories: fields.stories || estimateStories(fields.sqft),
-          constructionType: fields.construction_type || 'wood_frame',
-          roofType: 'composition',
-          exteriorWalls: 'wood_siding',
-          condition: fields.condition || estimateCondition(fields.yearbuilt),
-          localMultiplier: '1.0',
-          dataSource: 'nfirs' // Flag to identify this was estimated
-        };
-        
-        const value = calculateNFIRSValue(property);
-        
-        return {
-          ...property,
-          value,
-          id: Date.now() + Math.random()
-        };
-      }
-    });
+        if (hasRealZillowData) {
+          // Check what data is actually available from Zillow
+          const hasYearBuilt = neighbor.yearBuilt && neighbor.yearBuilt !== null;
+          const hasSquareFootage = neighbor.livingArea && neighbor.livingArea > 0;
+          
+          // Use Zillow building data for accurate NFIRS inputs
+          let property = {
+            address: neighbor.address,
+            incidentId: '',
+            propertyType: 'residential',
+            structureType: 'single_family',
+            yearBuilt: hasYearBuilt ? neighbor.yearBuilt.toString() : null,
+            squareFootage: hasSquareFootage ? neighbor.livingArea.toString() : null,
+            stories: '1',
+            constructionType: 'wood_frame',
+            roofType: 'composition',
+            exteriorWalls: 'wood_siding',
+            condition: 'good',
+            localMultiplier: '1.0',
+            // Store the real market data for display
+            marketPrice: neighbor.price,
+            zestimate: neighbor.zestimate,
+            dataSource: 'zillow',
+            // Track what data is missing for transparency
+            missingYearBuilt: !hasYearBuilt,
+            missingSquareFootage: !hasSquareFootage
+          };
+
+          // If Zillow data is incomplete, try to enhance with Realtor.com
+          if (!hasYearBuilt || !hasSquareFootage) {
+            console.log(`[Enhancement] Attempting to enhance ${neighbor.address} with Realtor.com data...`);
+            try {
+              property = await enhancementService.enhancePropertyData(property);
+              console.log(`[Enhancement] Enhanced property data source: ${property.dataSource}`);
+            } catch (error) {
+              console.warn(`[Enhancement] Failed to enhance ${neighbor.address}:`, error.message);
+            }
+          }
+          
+          // Calculate NFIRS replacement cost using available data
+          const value = calculateNFIRSValue(property);
+          
+          return {
+            ...property,
+            value: value,
+            id: Date.now() + Math.random()
+          };
+        } else {
+          // Fallback to NFIRS calculation if no real data available
+          const fields = neighbor.fields || {};
+          
+          const property = {
+            address: neighbor.address,
+            incidentId: '',
+            propertyType: fields.usecode ? mapUseCodeToPropertyType(fields.usecode) : 'residential',
+            structureType: 'single_family',
+            yearBuilt: fields.yearbuilt || fields.yearbuilt1 || estimateYearBuilt(neighbor.address),
+            squareFootage: fields.sqft || fields.improvement_value ? estimateSquareFootage(fields.improvement_value) : estimateSquareFootageByAddress(neighbor.address),
+            stories: fields.stories || estimateStories(fields.sqft),
+            constructionType: fields.construction_type || 'wood_frame',
+            roofType: 'composition',
+            exteriorWalls: 'wood_siding',
+            condition: fields.condition || estimateCondition(fields.yearbuilt),
+            localMultiplier: '1.0',
+            dataSource: 'nfirs' // Flag to identify this was estimated
+          };
+          
+          const value = calculateNFIRSValue(property);
+          
+          return {
+            ...property,
+            value,
+            id: Date.now() + Math.random()
+          };
+        }
+      }));
+      
+      setProperties([...properties, ...newProperties]);
+      setShowNeighborLookup(false);
+    };
     
-    setProperties([...properties, ...newProperties]);
-    setShowNeighborLookup(false);
+    // Execute the async function
+    processNeighborsAsync().catch(error => {
+      console.error('Error processing neighbors:', error);
+    });
   };
 
   // Helper functions to intelligently estimate missing data
@@ -484,12 +507,105 @@ const PVSCalculator = () => {
   const applyBulkUpload = async () => {
     if (!bulkUploadResults || !bulkUploadResults.properties) return;
     
-    // First add the main properties
-    const mainProperties = [...properties, ...bulkUploadResults.properties];
+    console.log('Applying bulk upload with market value fetching...');
+    
+    // Show progress indicator for market value fetching
+    setNeighborFetchProgress({
+      total: bulkUploadResults.properties.length,
+      current: 0,
+      status: 'Fetching market values from Zillow...'
+    });
+    
+    // Fetch market values for all CSV properties
+    const zillowService = new ZillowService();
+    const propertiesWithMarketValues = [];
+    
+    for (let i = 0; i < bulkUploadResults.properties.length; i++) {
+      const property = bulkUploadResults.properties[i];
+      let enhancedProperty = { ...property };
+      
+      // Update progress
+      setNeighborFetchProgress({
+        total: bulkUploadResults.properties.length,
+        current: i + 1,
+        status: `Fetching market value for ${property.address} (${i + 1}/${bulkUploadResults.properties.length})`
+      });
+      
+      try {
+        console.log(`Fetching market value for: ${property.address}`);
+        
+        // Search for the property on Zillow to get market value
+        const searchResults = await zillowService.searchProperties(property.address);
+        
+        console.log(`Zillow search results for "${property.address}":`, searchResults);
+        
+        let zillowProperty = null;
+        
+        // Handle different response formats from Zillow API
+        if (searchResults.props && searchResults.props.length > 0) {
+          // Standard format: {props: [...]}
+          zillowProperty = searchResults.props[0];
+        } else if (Array.isArray(searchResults) && searchResults.length > 0) {
+          // Array format: [...]
+          zillowProperty = searchResults[0];
+        } else if (searchResults.zpid) {
+          // Single property format: {zpid: ...}
+          // Need to get detailed property info using the zpid
+          try {
+            const propertyDetails = await zillowService.getPropertyDetails(searchResults.zpid);
+            if (propertyDetails) {
+              zillowProperty = propertyDetails;
+            }
+          } catch (detailError) {
+            console.warn(`Failed to get property details for zpid ${searchResults.zpid}:`, detailError.message);
+          }
+        }
+        
+        if (zillowProperty) {
+          console.log(`Found Zillow data for ${property.address}:`, {
+            price: zillowProperty.price,
+            zestimate: zillowProperty.zestimate,
+            zpid: zillowProperty.zpid
+          });
+          
+          // Add market value data to the property
+          enhancedProperty.price = zillowProperty.price;
+          enhancedProperty.zestimate = zillowProperty.zestimate;
+          enhancedProperty.zpid = zillowProperty.zpid;
+          enhancedProperty.dataSource = 'zillow';
+          
+          // Use the better of price or zestimate as marketPrice
+          enhancedProperty.marketPrice = zillowProperty.price || zillowProperty.zestimate;
+        } else {
+          console.log(`No usable Zillow data found for: ${property.address}`);
+          enhancedProperty.dataSource = 'csv-only';
+        }
+      } catch (error) {
+        console.warn(`Failed to fetch market value for ${property.address}:`, error.message);
+        enhancedProperty.dataSource = 'csv-only';
+      }
+      
+      propertiesWithMarketValues.push(enhancedProperty);
+      
+      // Add a small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    console.log(`Enhanced ${propertiesWithMarketValues.length} properties with market values`);
+    
+    // Update progress to show completion of market value fetching
+    setNeighborFetchProgress({
+      total: bulkUploadResults.properties.length,
+      current: bulkUploadResults.properties.length,
+      status: `Market values fetched! Processing ${propertiesWithMarketValues.length} properties...`
+    });
+    
+    // Add the enhanced properties to the main list
+    const mainProperties = [...properties, ...propertiesWithMarketValues];
     setProperties(mainProperties);
     
     // Check if any properties are selected to include neighbors
-    const propertiesNeedingNeighbors = bulkUploadResults.properties
+    const propertiesNeedingNeighbors = propertiesWithMarketValues
       .filter((p, index) => selectedForNeighbors.includes(index))
       .slice(0, 20); // Limit to first 20 to avoid API overload
     
@@ -508,6 +624,7 @@ const PVSCalculator = () => {
       setBulkUploadResults(null);
       setShowBulkUpload(false);
       setSelectedForNeighbors([]);
+      setNeighborFetchProgress(null); // Clear progress indicator
       
       // Reset file input
       const fileInput = document.getElementById('bulk-upload-input');
@@ -515,9 +632,11 @@ const PVSCalculator = () => {
     }
   };
 
-  // Fetch neighbors for preview
+  // Fetch neighbors for preview - Enhanced with Realtor.com fallback
   const fetchNeighborsForPreview = async (propertiesNeedingNeighbors) => {
     const zillowService = new ZillowService();
+    const realtorService = new RealtorService();
+    const enhancementService = new PropertyEnhancementService();
     const neighborGroups = {};
     const failedAddresses = [];
     const noNeighborsFound = [];
@@ -538,10 +657,88 @@ const PVSCalculator = () => {
         const addressSuggestions = await zillowService.getAddressSuggestions(property.address);
         
         if (!addressSuggestions || addressSuggestions.length === 0) {
-          console.warn(`No address suggestions found for: ${property.address}`);
+          console.warn(`No address suggestions found in Zillow for: ${property.address}`);
+          console.log(`[Fallback] Attempting to find property using Realtor.com for: ${property.address}`);
+          
+          // Try Realtor.com as fallback when Zillow can't find the address
+          try {
+            console.log(`[Fallback] Trying Realtor.com address search for ${property.address}...`);
+            
+            // First, try to search for the address in Realtor.com (similar to Zillow's smart search)
+            const realtorSuggestions = await realtorService.searchPropertiesByAddress(property.address);
+            
+            if (realtorSuggestions && realtorSuggestions.length > 0) {
+              console.log(`[Fallback] Found address suggestions in Realtor.com for ${property.address}`);
+              
+              const realtorProperty = realtorSuggestions[0]; // Use best match
+              
+              // Try to get detailed property info using property_id
+              let realtorDetails = null;
+              if (realtorProperty.property_id && realtorProperty.property_id.indexOf('realtor_') !== 0) {
+                try {
+                  realtorDetails = await realtorService.getPropertyDetails(realtorProperty.property_id);
+                } catch (detailError) {
+                  console.warn(`[Fallback] Could not get details for Realtor property_id ${realtorProperty.property_id}:`, detailError.message);
+                }
+              }
+              
+              // Create property using Realtor.com data (combination of search + details)
+              const enhancedProperty = {
+                ...property,
+                dataSource: 'realtor-fallback',
+                realtorProperty: realtorProperty,
+                realtorDetails: realtorDetails,
+                fallbackReason: 'Zillow address not found - found via Realtor.com address search',
+                latitude: realtorProperty.latitude,
+                longitude: realtorProperty.longitude,
+                // Use Realtor property details if available, otherwise keep CSV data
+                yearBuilt: realtorDetails?.yearBuilt || property.yearBuilt,
+                squareFootage: realtorDetails?.squareFootage || property.squareFootage,
+                marketPrice: realtorDetails?.currentValue
+              };
+              
+              neighborGroups[property.address] = {
+                targetProperty: enhancedProperty,
+                validatedAddress: realtorProperty.address,
+                neighbors: [], // No neighbors available without full coordinate search implementation
+                searchRadius: bulkNeighborOptions.radius,
+                totalFound: 0,
+                fallbackUsed: true
+              };
+              
+              continue; // Continue to next property
+            } else {
+              console.log(`[Fallback] No address suggestions found in Realtor.com for ${property.address}`);
+            }
+            
+            // If Realtor.com also doesn't have the address, use CSV data if available
+            if (property.yearBuilt && property.squareFootage) {
+              console.log(`[Fallback] Using CSV data only for ${property.address} - APIs not available`);
+              
+              neighborGroups[property.address] = {
+                targetProperty: {
+                  ...property,
+                  dataSource: 'csv-only',
+                  missingMarketData: true,
+                  fallbackReason: 'Address not found in Zillow or Realtor.com - using CSV data only'
+                },
+                validatedAddress: property.address,
+                neighbors: [], // No neighbors available without API lookup
+                searchRadius: bulkNeighborOptions.radius,
+                totalFound: 0,
+                fallbackUsed: true
+              };
+              
+              continue; // Continue to next property
+            }
+          } catch (realtorError) {
+            console.warn(`[Fallback] Realtor.com also failed for ${property.address}:`, realtorError.message);
+          }
+          
+          // If all fallbacks fail, add to failed addresses with detailed explanation
           failedAddresses.push({
             originalAddress: property.address,
-            reason: 'Address not found in Zillow database'
+            reason: 'Address not found in Zillow or Realtor.com databases. CSV data insufficient (missing yearBuilt or squareFootage). Please verify the address or provide complete property data in CSV.'
           });
           continue; // Skip this property
         }
@@ -632,7 +829,7 @@ const PVSCalculator = () => {
                   console.warn(`Could not fetch detailed info for ${neighbor.address}:`, error.message);
                 }
               }
-              const neighborProperty = {
+              let neighborProperty = {
                 address: enhancedNeighbor.address,
                 incidentId: '', // Don't copy parent's incident ID to neighbors
                 propertyType: 'residential',
@@ -652,8 +849,21 @@ const PVSCalculator = () => {
                 parentProperty: property.address,
                 distance: enhancedNeighbor.distance,
                 direction: enhancedNeighbor.direction,
-                category: enhancedNeighbor.category
+                category: enhancedNeighbor.category,
+                missingYearBuilt: !enhancedNeighbor.yearBuilt,
+                missingSquareFootage: !enhancedNeighbor.livingArea
               };
+
+              // Try to enhance with Realtor.com if critical data is missing
+              if (!enhancedNeighbor.yearBuilt || !enhancedNeighbor.livingArea) {
+                try {
+                  console.log(`[Bulk Enhancement] Attempting to enhance ${enhancedNeighbor.address}...`);
+                  neighborProperty = await enhancementService.enhancePropertyData(neighborProperty);
+                  console.log(`[Bulk Enhancement] Enhanced neighbor data source: ${neighborProperty.dataSource}`);
+                } catch (error) {
+                  console.warn(`[Bulk Enhancement] Failed to enhance ${enhancedNeighbor.address}:`, error.message);
+                }
+              }
               
               const value = calculateNFIRSValue(neighborProperty);
               
@@ -1133,9 +1343,17 @@ const PVSCalculator = () => {
       doc.setFontSize(9);
       doc.setFont(undefined, 'italic');
       doc.setTextColor(100, 100, 100);
-      doc.text('Methodology: NFIRS replacement costs calculated using construction type, square footage, age depreciation,', margin, footerY - 20);
-      doc.text('condition factors, and local market multipliers per fire department emergency response standards.', margin, footerY - 15);
-      doc.text('Market values sourced from Zillow. All estimates for planning purposes only.', margin, footerY - 10);
+      doc.text('Methodology: NFIRS replacement costs calculated using construction type, square footage, age depreciation,', margin, footerY - 25);
+      doc.text('condition factors, and local market multipliers per fire department emergency response standards.', margin, footerY - 20);
+      
+      // Data source transparency for government compliance
+      doc.setFont(undefined, 'bold');
+      doc.text('Data Sources & Transparency:', margin, footerY - 15);
+      doc.setFont(undefined, 'italic');
+      doc.text('• Market values sourced from Zillow API and Realtor.com API when available', margin, footerY - 10);
+      doc.text('• Property characteristics enhanced using multiple real estate data providers', margin, footerY - 5);
+      doc.text('• All property data sources are clearly attributed in the application interface', margin, footerY);
+      doc.text('• Estimates are for emergency planning purposes only - not for legal or financial decisions', margin, footerY + 5);
     }
 
     // Page numbers on all pages
@@ -2311,14 +2529,47 @@ const PVSCalculator = () => {
                         </div>
                       </td>
                       <td className="p-3 text-right border-b border-gray-200 text-sm">
+                        {/* Primary Market Value */}
                         {property.marketPrice ? formatCurrency(property.marketPrice) : 
                          property.zestimate ? formatCurrency(property.zestimate) : 
                          <span className="text-gray-400 italic">N/A</span>}
-                        {property.dataSource === 'zillow' && (property.marketPrice || property.zestimate) && (
-                          <div className="text-xs text-gray-400 mt-1">
-                            Data source: Zillow
+                        
+                        {/* Realtor Estimate if available */}
+                        {property.realtorEstimate && (
+                          <div className="text-xs text-green-600 mt-1">
+                            Realtor Est: {formatCurrency(property.realtorEstimate)}
                           </div>
                         )}
+                        
+                        {/* Data Source Attribution - Government Transparency */}
+                        <div className="text-xs mt-1">
+                          {property.dataSource === 'zillow-realtor' ? (
+                            <div className="text-blue-600 font-medium">
+                              <div>Sources: Zillow + Realtor.com</div>
+                            </div>
+                          ) : property.dataSource === 'realtor' ? (
+                            <div className="text-green-600">
+                              Source: Realtor.com
+                            </div>
+                          ) : (property.marketPrice || property.zestimate) ? (
+                            <div className="text-gray-500">
+                              Source: Zillow
+                            </div>
+                          ) : null}
+                          
+                          {/* Show missing data transparency - check current values */}
+                          {(() => {
+                            const currentMissingFields = [];
+                            if (!property.yearBuilt) currentMissingFields.push('yearBuilt');
+                            if (!property.squareFootage && !property.livingArea) currentMissingFields.push('squareFootage');
+                            
+                            return currentMissingFields.length > 0 ? (
+                              <div className="text-orange-600 mt-1">
+                                Missing: {currentMissingFields.join(', ')}
+                              </div>
+                            ) : null;
+                          })()}
+                        </div>
                       </td>
                       <td className="p-3 text-center border-b border-gray-200">
                         <button
@@ -2573,12 +2824,14 @@ const PVSCalculator = () => {
             <h4 className="text-xl font-bold text-gray-900 mb-6">Data Sources & Methodology</h4>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 text-gray-700">
               <div>
-                <p className="mb-4"><strong className="text-gray-900">Property Values:</strong> Market data sourced from Zillow. Replacement costs calculated using NFIRS (National Fire Incident Reporting System) emergency response standards.</p>
-                <p className="mb-4"><strong className="text-gray-900">Market Estimates:</strong> Zillow Zestimate® is an automated valuation model (AVM) that estimates market value. Actual property values may vary.</p>
+                <p className="mb-4"><strong className="text-gray-900">Property Values:</strong> Market data sourced from <span className="text-blue-600">Zillow API</span> and <span className="text-green-600">Realtor.com API</span>. Replacement costs calculated using NFIRS (National Fire Incident Reporting System) emergency response standards.</p>
+                <p className="mb-4"><strong className="text-gray-900">Data Sources:</strong> Property characteristics and market estimates are enhanced using multiple real estate data providers to ensure accuracy for emergency planning purposes.</p>
+                <p className="mb-4"><strong className="text-gray-900">Government Transparency:</strong> All data sources are clearly attributed in the application interface. When data from multiple sources is used, this is explicitly indicated.</p>
               </div>
               <div>
                 <p className="mb-4"><strong className="text-gray-900">NFIRS Calculations:</strong> Based on construction type, square footage, age depreciation, condition factors, and local market multipliers per fire department standards.</p>
-                <p><strong className="text-gray-900">Disclaimer:</strong> All estimates are for informational and planning purposes only. Actual replacement costs and market values may differ. Property data accuracy depends on source availability and currency.</p>
+                <p className="mb-4"><strong className="text-gray-900">Market Estimates:</strong> Zillow Zestimate® and Realtor.com valuations are automated valuation models (AVM). Actual property values may vary.</p>
+                <p><strong className="text-gray-900">Disclaimer:</strong> All estimates are for informational and emergency planning purposes only. Not for legal or financial decisions. Property data accuracy depends on source availability and currency.</p>
               </div>
             </div>
           </div>

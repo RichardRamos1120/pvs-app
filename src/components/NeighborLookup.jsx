@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ZillowService from '../services/zillowService';
+import RealtorService from '../services/realtorService';
 import AddressAutocomplete from './AddressAutocomplete';
 
 const NeighborLookup = ({ onNeighborsFound }) => {
@@ -16,6 +17,7 @@ const NeighborLookup = ({ onNeighborsFound }) => {
   });
 
   const zillowService = new ZillowService();
+  const realtorService = new RealtorService();
 
   const handleAddressSelect = (suggestion) => {
     setSelectedAddress(suggestion);

@@ -1,0 +1,3 @@
+address,incidentId,propertyType,structureType,yearBuilt,squareFootage,stories,constructionType,condition,localMultiplier
+"140 Linden Lane, Mill Valley, CA 94941",INC-2024-MV1,residential,single_family,1975,2200,2,wood_frame,good,1.0
+"65 Summit Ave, Mill Valley, CA 94941",INC-2024-MV2,residential,single_family,1965,1800,2,wood_frame,good,1.0
