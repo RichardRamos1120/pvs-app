@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ZillowService from '../services/zillowService';
+import RealtorService from '../services/realtorService';
 import AddressAutocomplete from './AddressAutocomplete';
 
 const NeighborLookup = ({ onNeighborsFound }) => {
@@ -16,6 +17,7 @@ const NeighborLookup = ({ onNeighborsFound }) => {
   });
 
   const zillowService = new ZillowService();
+  const realtorService = new RealtorService();
 
   const handleAddressSelect = (suggestion) => {
     setSelectedAddress(suggestion);
@@ -41,10 +43,105 @@ const NeighborLookup = ({ onNeighborsFound }) => {
       if (selectedAddress && selectedAddress.zpid) {
         console.log(`Searching neighbors for: ${selectedAddress.address} (zpid: ${selectedAddress.zpid})`);
         
-        // Use Zillow service to find neighbors using the property object
-        neighborData = await zillowService.getNeighborsByAddress(selectedAddress, {
-          ...searchOptions
-        });
+        // Check if this is a manual entry (no Zillow data)
+        if (selectedAddress.isManualEntry || String(selectedAddress.zpid).startsWith('manual_')) {
+          console.log('Manual entry detected - trying Realtor.com as fallback');
+          
+          // Try Realtor.com API for this address
+          try {
+            const realtorResults = await realtorService.searchPropertiesByAddress(selectedAddress.address);
+            
+            if (realtorResults && realtorResults.length > 0) {
+              console.log(`Found ${realtorResults.length} properties in Realtor.com for ${selectedAddress.address}`);
+              
+              // Get details for the first matching property
+              const realtorProperty = realtorResults[0];
+              let propertyDetails = null;
+              
+              if (realtorProperty.property_id && !realtorProperty.property_id.startsWith('realtor_')) {
+                try {
+                  propertyDetails = await realtorService.getPropertyDetails(realtorProperty.property_id);
+                  console.log('Got Realtor.com property details:', propertyDetails);
+                } catch (err) {
+                  console.warn('Could not get Realtor property details:', err);
+                }
+              }
+              
+              // Create property result from Realtor data
+              neighborData = {
+                targetProperty: {
+                  address: selectedAddress.address,
+                  zpid: realtorProperty.property_id || selectedAddress.zpid,
+                  latitude: realtorProperty.latitude || null,
+                  longitude: realtorProperty.longitude || null,
+                  city: selectedAddress.city,
+                  state: selectedAddress.state,
+                  yearBuilt: propertyDetails?.yearBuilt || null,
+                  livingArea: propertyDetails?.squareFootage || null,
+                  price: propertyDetails?.currentValue || null,
+                  zestimate: null,
+                  realtorEstimate: propertyDetails?.currentValue || null,
+                  dataSource: 'realtor',
+                  isManualEntry: false
+                },
+                neighbors: [] // Realtor doesn't provide neighbor search
+              };
+              
+              setError('Found property in Realtor.com database. No neighbor data available from Realtor API.');
+            } else {
+              console.log('No Realtor.com data found either - falling back to manual entry');
+              
+              // Final fallback: manual entry
+              neighborData = {
+                targetProperty: {
+                  address: selectedAddress.address,
+                  zpid: selectedAddress.zpid,
+                  latitude: null,
+                  longitude: null,
+                  city: selectedAddress.city,
+                  state: selectedAddress.state,
+                  yearBuilt: null,
+                  livingArea: null,
+                  price: null,
+                  zestimate: null,
+                  isManualEntry: true,
+                  dataSource: 'manual'
+                },
+                neighbors: []
+              };
+              
+              setError('Address not found in Zillow or Realtor.com. Added as manual entry without property data.');
+            }
+          } catch (realtorError) {
+            console.error('Realtor.com search failed:', realtorError);
+            
+            // Fallback to manual entry if Realtor fails
+            neighborData = {
+              targetProperty: {
+                address: selectedAddress.address,
+                zpid: selectedAddress.zpid,
+                latitude: null,
+                longitude: null,
+                city: selectedAddress.city,
+                state: selectedAddress.state,
+                yearBuilt: null,
+                livingArea: null,
+                price: null,
+                zestimate: null,
+                isManualEntry: true,
+                dataSource: 'manual'
+              },
+              neighbors: []
+            };
+            
+            setError('Both Zillow and Realtor.com searches failed. Added as manual entry.');
+          }
+        } else {
+          // Use Zillow service to find neighbors using the property object
+          neighborData = await zillowService.getNeighborsByAddress(selectedAddress, {
+            ...searchOptions
+          });
+        }
       } else {
         throw new Error('Please select an address from the autocomplete suggestions first');
       }
@@ -52,7 +149,17 @@ const NeighborLookup = ({ onNeighborsFound }) => {
       setResults(neighborData);
       
       if (neighborData.neighbors.length === 0) {
-        setError('No neighboring properties found');
+        // Even if no neighbors found, we can still add the target property itself
+        if (neighborData.targetProperty) {
+          setError(`No neighbors found, but you can add the target property: ${neighborData.targetProperty.address}`);
+          // Auto-select the target property so user can add it
+          setSelectedNeighbors([neighborData.targetProperty]);
+        } else {
+          setError('No neighboring properties found and target property could not be loaded');
+        }
+      } else {
+        // Clear any previous error if neighbors were found
+        setError('');
       }
     } catch (err) {
       setError(err.message || 'Failed to find neighboring properties');
@@ -247,21 +354,24 @@ const NeighborLookup = ({ onNeighborsFound }) => {
                 </button>
               </div>
             </div>
+            
+            {selectedNeighbors.length > 0 && (
+              <div className="mb-4 text-center">
+                <button
+                  onClick={handleAddSelectedNeighbors}
+                  className="bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 transition-colors"
+                >
+                  Add {selectedNeighbors.length} Selected Properties
+                </button>
+              </div>
+            )}
 
             {results.neighbors.length > 0 && (
               <>
-                <div className="flex justify-between items-center mb-4">
+                <div className="mb-4">
                   <h4 className="font-semibold text-lg">
                     Found {results.neighbors.length} Neighboring Properties
                   </h4>
-                  {selectedNeighbors.length > 0 && (
-                    <button
-                      onClick={handleAddSelectedNeighbors}
-                      className="bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 transition-colors"
-                    >
-                      Add {selectedNeighbors.length} Selected Properties
-                    </button>
-                  )}
                 </div>
 
                 <div className="space-y-3 max-h-96 overflow-y-auto">

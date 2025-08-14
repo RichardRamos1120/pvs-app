@@ -42,7 +42,7 @@ const PVSCalculator = () => {
   const [neighborFetchProgress, setNeighborFetchProgress] = useState(null); // Track neighbor fetching progress
   const [selectedForNeighbors, setSelectedForNeighbors] = useState([]); // Track which bulk properties should fetch neighbors
   const [bulkNeighborOptions, setBulkNeighborOptions] = useState({
-    radius: 100,
+    radius: 50,  // Changed default from 100 to 50 meters for bulk upload
     includeAcrossStreet: true,
     maxResults: 15
   }); // Neighbor search options for bulk upload
@@ -194,8 +194,26 @@ const PVSCalculator = () => {
 
   // Update property with inline edits
   const updateProperty = (index, field, value) => {
+    console.log(`updateProperty called - index: ${index}, field: ${field}, value: ${value}`);
     const newProperties = [...properties];
-    newProperties[index] = { ...newProperties[index], [field]: value };
+    
+    // Convert string values to appropriate types
+    let processedValue = value;
+    if (field === 'marketPrice') {
+      // Remove any currency symbols and commas, convert to number
+      const numValue = parseFloat(value.toString().replace(/[$,]/g, ''));
+      processedValue = isNaN(numValue) ? null : numValue;
+      console.log(`Processed market price: ${processedValue}`);
+    } else if (field === 'yearBuilt') {
+      processedValue = parseInt(value) || null;
+    } else if (field === 'squareFootage') {
+      processedValue = parseInt(value) || null;
+    }
+    
+    newProperties[index] = { ...newProperties[index], [field]: processedValue };
+    console.log(`Updated property:`, newProperties[index]);
+    console.log(`Property marketPrice:`, newProperties[index].marketPrice);
+    console.log(`Property marketValueSource:`, newProperties[index].marketValueSource);
     
     // Recalculate NFIRS value if we now have complete data
     if (field === 'yearBuilt' || field === 'squareFootage') {
@@ -206,7 +224,9 @@ const PVSCalculator = () => {
       }
     }
     
+    console.log('Setting properties with:', newProperties);
     setProperties(newProperties);
+    console.log('Properties after set will be updated on next render');
   };
 
   // Handle neighbors found from neighbor lookup - Enhanced with Realtor.com fallback
@@ -545,8 +565,35 @@ const PVSCalculator = () => {
           // Standard format: {props: [...]}
           zillowProperty = searchResults.props[0];
         } else if (Array.isArray(searchResults) && searchResults.length > 0) {
-          // Array format: [...]
-          zillowProperty = searchResults[0];
+          // Array format: [...] - likely multiple units/apartments
+          console.log(`Found ${searchResults.length} properties/units for "${property.address}"`);
+          
+          // Try to find the best match or one with data
+          for (const result of searchResults) {
+            console.log(`Checking unit:`, result);
+            if (result.zpid) {
+              // If we have a zpid, try to get detailed info
+              try {
+                const details = await zillowService.getPropertyDetails(result.zpid);
+                if (details && (details.price || details.zestimate)) {
+                  zillowProperty = details;
+                  console.log(`Found property with market value:`, details);
+                  break;
+                }
+              } catch (err) {
+                console.warn(`Failed to get details for zpid ${result.zpid}:`, err.message);
+              }
+            } else if (result.price || result.zestimate) {
+              // Use this if it has price data
+              zillowProperty = result;
+              break;
+            }
+          }
+          
+          // If no property with price found, use the first one
+          if (!zillowProperty && searchResults[0]) {
+            zillowProperty = searchResults[0];
+          }
         } else if (searchResults.zpid) {
           // Single property format: {zpid: ...}
           // Need to get detailed property info using the zpid
@@ -568,16 +615,34 @@ const PVSCalculator = () => {
           });
           
           // Add market value data to the property
-          enhancedProperty.price = zillowProperty.price;
-          enhancedProperty.zestimate = zillowProperty.zestimate;
+          enhancedProperty.price = safeNumber(zillowProperty.price);
+          enhancedProperty.zestimate = safeNumber(zillowProperty.zestimate);
           enhancedProperty.zpid = zillowProperty.zpid;
           enhancedProperty.dataSource = 'zillow';
           
           // Use the better of price or zestimate as marketPrice
-          enhancedProperty.marketPrice = zillowProperty.price || zillowProperty.zestimate;
+          enhancedProperty.marketPrice = safeNumber(zillowProperty.price) || safeNumber(zillowProperty.zestimate);
         } else {
-          console.log(`No usable Zillow data found for: ${property.address}`);
-          enhancedProperty.dataSource = 'csv-only';
+          console.log(`No usable Zillow data found for: ${property.address}. Trying Realtor.com fallback...`);
+          
+          // Try Realtor.com as fallback for market value
+          try {
+            const enhancementService = new PropertyEnhancementService();
+            const realtorData = await enhancementService.tryGetRealtorData(property);
+            
+            if (realtorData && (realtorData.currentValue || realtorData.price)) {
+              console.log(`Found Realtor.com data for ${property.address}:`, realtorData);
+              enhancedProperty.marketPrice = safeNumber(realtorData.currentValue) || safeNumber(realtorData.price);
+              enhancedProperty.realtorEstimate = safeNumber(realtorData.currentValue);
+              enhancedProperty.dataSource = 'realtor';
+            } else {
+              console.log(`No Realtor.com data found either for: ${property.address}`);
+              enhancedProperty.dataSource = 'csv-only';
+            }
+          } catch (realtorError) {
+            console.warn(`Realtor.com fallback failed for ${property.address}:`, realtorError.message);
+            enhancedProperty.dataSource = 'csv-only';
+          }
         }
       } catch (error) {
         console.warn(`Failed to fetch market value for ${property.address}:`, error.message);
@@ -751,8 +816,8 @@ const PVSCalculator = () => {
         let targetZestimate = null;
         try {
           const propertyDetails = await zillowService.getPropertyDetails(validatedAddress.zpid);
-          targetMarketValue = propertyDetails.price || null;
-          targetZestimate = propertyDetails.zestimate || null;
+          targetMarketValue = safeNumber(propertyDetails.price);
+          targetZestimate = safeNumber(propertyDetails.zestimate);
           console.log(`Market value for ${validatedAddress.address}: ${targetMarketValue || targetZestimate || 'Not available'}`);
         } catch (error) {
           console.warn(`Could not fetch market value for ${validatedAddress.address}:`, error.message);
@@ -815,10 +880,10 @@ const PVSCalculator = () => {
                   
                   // Also enhance other missing data if available
                   if (!enhancedNeighbor.price && detailedInfo.price) {
-                    enhancedNeighbor.price = detailedInfo.price;
+                    enhancedNeighbor.price = safeNumber(detailedInfo.price);
                   }
                   if (!enhancedNeighbor.zestimate && detailedInfo.zestimate) {
-                    enhancedNeighbor.zestimate = detailedInfo.zestimate;
+                    enhancedNeighbor.zestimate = safeNumber(detailedInfo.zestimate);
                   }
                   
                   // Add a small delay to respect rate limits
@@ -1109,11 +1174,19 @@ const PVSCalculator = () => {
   
   // Format currency
   const formatCurrency = (value) => {
+    if (!value || isNaN(value)) return '$0';
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       maximumFractionDigits: 0
-    }).format(value);
+    }).format(Number(value));
+  };
+
+  // Safe number conversion utility
+  const safeNumber = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const num = Number(value);
+    return isNaN(num) ? null : num;
   };
   
   // Reset calculator
@@ -1311,7 +1384,7 @@ const PVSCalculator = () => {
 
     autoTable(doc, {
       startY: yPosition,
-      head: [['Address', 'Sq Ft', 'Year', 'NFIRS Value', 'Market Value']],
+      head: [['Address', 'Sq Ft', 'Year', 'NFIRS Value', 'Est. Market Value']],
       body: propertiesData,
       theme: 'grid',
       headStyles: { fillColor: [59, 130, 246], textColor: 255 },
@@ -1813,7 +1886,7 @@ const PVSCalculator = () => {
                               <th className="p-2 text-center border">Sq Ft</th>
                               <th className="p-2 text-center border">Year</th>
                               <th className="p-2 text-right border">NFIRS Value</th>
-                              <th className="p-2 text-right border">Market Value</th>
+                              <th className="p-2 text-right border">Est. Market Value</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -2167,7 +2240,7 @@ const PVSCalculator = () => {
                                     <th className="p-3 text-center border-b">Sq Ft</th>
                                     <th className="p-3 text-center border-b">Year</th>
                                     <th className="p-3 text-right border-b">NFIRS Value</th>
-                                    <th className="p-3 text-right border-b">Market Value</th>
+                                    <th className="p-3 text-right border-b">Est. Market Value</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -2354,7 +2427,7 @@ const PVSCalculator = () => {
                     <th className="p-3 text-center border-b border-gray-200 text-sm">Sq Ft</th>
                     <th className="p-3 text-center border-b border-gray-200 text-sm">Year</th>
                     <th className="p-3 text-right border-b border-gray-200 text-sm">Replacement Cost</th>
-                    <th className="p-3 text-right border-b border-gray-200 text-sm">Market Value</th>
+                    <th className="p-3 text-right border-b border-gray-200 text-sm">Est. Market Value</th>
                     <th className="p-3 text-center border-b border-gray-200 text-sm w-16">Actions</th>
                   </tr>
                 </thead>
@@ -2528,21 +2601,164 @@ const PVSCalculator = () => {
                         </div>
                       </td>
                       <td className="p-3 text-right border-b border-gray-200 text-sm">
-                        {/* Primary Market Value */}
-                        {property.marketPrice ? formatCurrency(property.marketPrice) : 
-                         property.zestimate ? formatCurrency(property.zestimate) : 
-                         <span className="text-gray-400 italic">N/A</span>}
-                        
-                        {/* Realtor Estimate if available */}
-                        {property.realtorEstimate && (
-                          <div className="text-xs text-green-600 mt-1">
-                            Realtor Est: {formatCurrency(property.realtorEstimate)}
+                        {/* Editable Market Value */}
+                        {(property.marketPrice || property.zestimate) ? (
+                          <>
+                            {property.marketPrice ? formatCurrency(property.marketPrice) : 
+                             property.zestimate ? formatCurrency(property.zestimate) : null}
+                            
+                            {/* Realtor Estimate if available */}
+                            {property.realtorEstimate && (
+                              <div className="text-xs text-green-600 mt-1">
+                                Realtor Est: {formatCurrency(property.realtorEstimate)}
+                              </div>
+                            )}
+                          </>
+                        ) : editingProperty?.index === index && editingProperty?.field === 'marketValue' ? (
+                          <div className="space-y-2 p-2 border border-green-300 rounded bg-green-50">
+                            <div className="relative">
+                              <span className="absolute left-2 top-1 text-sm text-gray-600">$</span>
+                              <input
+                                type="number"
+                                value={editingProperty?.tempMarketValue || ''}
+                                onChange={(e) => {
+                                  setEditingProperty({
+                                    ...editingProperty,
+                                    tempMarketValue: e.target.value
+                                  });
+                                }}
+                                placeholder="650000"
+                                className="w-full pl-6 pr-2 py-1 text-sm border border-green-300 rounded bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                                onKeyPress={(e) => {
+                                  if (e.key === 'Enter') {
+                                    // Move focus to source field
+                                    const sourceInput = e.target.parentElement.nextElementSibling;
+                                    if (sourceInput) sourceInput.focus();
+                                  }
+                                }}
+                                autoFocus
+                                min="10000"
+                                max="100000000"
+                                step="1000"
+                              />
+                            </div>
+                            <input
+                              type="text"
+                              value={editingProperty?.tempSource || ''}
+                              onChange={(e) => {
+                                setEditingProperty({
+                                  ...editingProperty,
+                                  tempSource: e.target.value
+                                });
+                              }}
+                              placeholder="Source (e.g., County Assessment, Realtor)"
+                              className="w-full px-2 py-1 text-xs border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-gray-400"
+                              onKeyPress={(e) => {
+                                if (e.key === 'Enter') {
+                                  // Save both values at once to avoid state update race condition
+                                  console.log('Enter pressed - tempMarketValue:', editingProperty?.tempMarketValue, 'tempSource:', editingProperty?.tempSource);
+                                  
+                                  // Get the current property to preserve all fields
+                                  const currentProperty = properties[index];
+                                  const updatedProperty = { ...currentProperty };
+                                  
+                                  // Update market price if provided
+                                  if (editingProperty?.tempMarketValue && editingProperty.tempMarketValue.toString().trim() !== '') {
+                                    const numValue = parseFloat(editingProperty.tempMarketValue);
+                                    if (!isNaN(numValue) && numValue >= 0) {
+                                      console.log('Saving market price:', numValue);
+                                      updatedProperty.marketPrice = numValue;
+                                    }
+                                  }
+                                  
+                                  // Update source if provided
+                                  if (editingProperty?.tempSource && editingProperty.tempSource.trim() !== '') {
+                                    console.log('Saving source:', editingProperty.tempSource);
+                                    updatedProperty.marketValueSource = editingProperty.tempSource;
+                                  }
+                                  
+                                  // Update the entire property at once
+                                  const newProperties = [...properties];
+                                  newProperties[index] = updatedProperty;
+                                  setProperties(newProperties);
+                                  
+                                  console.log('Updated property with both values:', updatedProperty);
+                                  setEditingProperty(null);
+                                }
+                              }}
+                            />
+                            <div className="flex gap-2 text-xs">
+                              <button
+                                onClick={() => {
+                                  // Save both values at once to avoid state update race condition
+                                  console.log('Done clicked - tempMarketValue:', editingProperty?.tempMarketValue, 'tempSource:', editingProperty?.tempSource);
+                                  
+                                  // Get the current property to preserve all fields
+                                  const currentProperty = properties[index];
+                                  const updatedProperty = { ...currentProperty };
+                                  
+                                  // Update market price if provided
+                                  if (editingProperty?.tempMarketValue && editingProperty.tempMarketValue.toString().trim() !== '') {
+                                    const numValue = parseFloat(editingProperty.tempMarketValue);
+                                    if (!isNaN(numValue) && numValue >= 0) {
+                                      console.log('Saving market price:', numValue);
+                                      updatedProperty.marketPrice = numValue;
+                                    }
+                                  }
+                                  
+                                  // Update source if provided
+                                  if (editingProperty?.tempSource && editingProperty.tempSource.trim() !== '') {
+                                    console.log('Saving source:', editingProperty.tempSource);
+                                    updatedProperty.marketValueSource = editingProperty.tempSource;
+                                  }
+                                  
+                                  // Update the entire property at once
+                                  const newProperties = [...properties];
+                                  newProperties[index] = updatedProperty;
+                                  setProperties(newProperties);
+                                  
+                                  console.log('Updated property with both values:', updatedProperty);
+                                  setEditingProperty(null);
+                                }}
+                                className="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+                              >
+                                Done
+                              </button>
+                              <button
+                                onClick={() => {
+                                  // Cancel without saving
+                                  setEditingProperty(null);
+                                }}
+                                className="px-2 py-1 bg-gray-400 text-white rounded hover:bg-gray-500"
+                              >
+                                Cancel
+                              </button>
+                            </div>
                           </div>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setEditingProperty({
+                                index, 
+                                field: 'marketValue', 
+                                value: property.marketPrice,
+                                tempMarketValue: property.marketPrice || '',
+                                tempSource: property.marketValueSource || ''
+                              });
+                            }}
+                            className="w-full px-2 py-1 text-sm border border-green-300 rounded bg-green-50 hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-green-500"
+                          >
+                            Enter est. value
+                          </button>
                         )}
                         
                         {/* Data Source Attribution - Government Transparency */}
                         <div className="text-xs mt-1">
-                          {property.dataSource === 'zillow-realtor' ? (
+                          {property.marketValueSource ? (
+                            <div className="text-purple-600 font-medium">
+                              Source: {property.marketValueSource}
+                            </div>
+                          ) : property.dataSource === 'zillow-realtor' ? (
                             <div className="text-blue-600 font-medium">
                               <div>Sources: Zillow + Realtor.com</div>
                             </div>

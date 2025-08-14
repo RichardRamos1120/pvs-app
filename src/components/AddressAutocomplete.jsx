@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ZillowService from '../services/zillowService';
+import RealtorService from '../services/realtorService';
 
 const AddressAutocomplete = ({ 
   value, 
@@ -22,6 +23,7 @@ const AddressAutocomplete = ({
   const lastQuery = useRef('');
   const lastResults = useRef({});
   const zillowService = new ZillowService();
+  const realtorService = new RealtorService();
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -89,7 +91,48 @@ const AddressAutocomplete = ({
         
         setSuggestions(formattedSuggestions);
       } else {
-        setSuggestions([]);
+        // If no Zillow suggestions found, try Realtor.com as fallback
+        console.log('No Zillow results - trying Realtor.com fallback...');
+        
+        try {
+          const realtorResults = await realtorService.searchPropertiesByAddress(query);
+          
+          if (realtorResults && realtorResults.length > 0) {
+            console.log(`Found ${realtorResults.length} properties in Realtor.com for "${query}"`);
+            
+            // Format Realtor results as suggestions (limit to 3 to reduce API calls)
+            const realtorSuggestions = realtorResults.slice(0, 3).map((property, index) => {
+              
+              return {
+                address: property.address,
+                city: property.city || query.split(',')[1]?.trim() || '',
+                state: property.state || query.split(',')[2]?.trim()?.split(' ')[0] || '',
+                zpid: property.property_id || `realtor_${Date.now()}_${index}`,
+                ll_uuid: property.property_id || `realtor_${Date.now()}_${index}`,
+                context: `Via Realtor.com - Property found`,
+                isRealtorData: true,
+                yearBuilt: property.yearBuilt || null,
+                squareFootage: property.squareFootage || null,
+                currentValue: property.currentValue || null,
+                latitude: property.latitude,
+                longitude: property.longitude,
+                uniqueKey: `realtor_${property.property_id}_${index}`,
+                rawRealtorData: property
+              };
+            });
+            
+            setSuggestions(realtorSuggestions);
+            console.log('Using Realtor.com suggestions:', realtorSuggestions);
+          } else {
+            // No results found in either API - show empty
+            console.log('No results found in Zillow or Realtor.com');
+            setSuggestions([]);
+          }
+        } catch (realtorError) {
+          console.error('Realtor.com search failed:', realtorError);
+          // If Realtor fails, show empty
+          setSuggestions([]);
+        }
       }
 
       // Cache the results
@@ -256,8 +299,13 @@ const AddressAutocomplete = ({
                 {suggestion.address}
               </div>
               {suggestion.context && (
-                <div className="text-sm text-gray-500">
-                  {suggestion.context}
+                <div className={`text-sm ${
+                  suggestion.isManualEntry ? 'text-orange-600' : 
+                  suggestion.isRealtorData ? 'text-green-600' : 
+                  'text-gray-500'
+                }`}>
+                  {suggestion.isManualEntry ? '⚠️ ' : 
+                   suggestion.isRealtorData ? '🏠 ' : ''}{suggestion.context}
                 </div>
               )}
             </div>

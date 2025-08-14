@@ -111,12 +111,102 @@ class RealtorService {
     }
   }
 
-  // Search properties by address (for address validation and getting property_id)
-  async searchPropertiesByAddress(address) {
+  // Try to get property by constructing Realtor.com URL
+  async getPropertyByDirectURL(address) {
     try {
       await this.waitForRateLimit();
       
-      console.log(`[Realtor] Searching for address: ${address}`);
+      console.log(`[Realtor] Trying direct URL lookup for: ${address}`);
+      
+      // Format address for URL: "65 Summit Ave, Mill Valley, CA 94941" -> "65-Summit-Ave_Mill-Valley_CA_94941"
+      const addressParts = address.split(',').map(part => part.trim());
+      const street = addressParts[0]?.replace(/\s+/g, '-');
+      const city = addressParts[1]?.replace(/\s+/g, '-');
+      const stateZip = addressParts[2]?.split(' ');
+      const state = stateZip?.[0];
+      const zip = stateZip?.[1];
+      
+      // Try multiple URL formats that Realtor.com uses
+      const urlFormats = [
+        `https://www.realtor.com/realestateandhomes-detail/${street}_${city}_${state}_${zip}`,
+        `https://www.realtor.com/realestateandhomes-detail/${street.replace(/-/g, '')}_${city}_${state}_${zip}`,  
+        `https://www.realtor.com/realestateandhomes-detail/${street}--${city}--${state}--${zip}`,
+        `https://www.realtor.com/realestateandhomes-search/${city}_${state}/address-${street.toLowerCase()}`
+      ];
+      
+      for (const realtorUrl of urlFormats) {
+        console.log(`[Realtor] Trying URL format: ${realtorUrl}`);
+        
+        try {
+          // Use search_by_url endpoint
+          const encodedUrl = encodeURIComponent(realtorUrl);
+          const response = await fetch(`${this.baseUrl}/search_by_url?url=${encodedUrl}`, {
+            method: 'GET',
+            headers: {
+              'x-rapidapi-key': this.apiKey,
+              'x-rapidapi-host': this.apiHost
+            }
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log(`[Realtor] Direct URL lookup result for ${realtorUrl}:`, data);
+            
+            // Check if we found actual property data (not an error)
+            if (data && data.data && !data.error && data.data.length > 0) {
+              const property = Array.isArray(data.data) ? data.data[0] : data.data;
+              if (property && property.property_id) {
+                console.log(`[Realtor] SUCCESS - Found property via URL: ${realtorUrl}`);
+                return {
+                  property_id: property.property_id || property.id,
+                  address: address,
+                  yearBuilt: property.description?.year_built || property.year_built,
+                  squareFootage: property.description?.sqft || property.sqft || property.living_area,
+                  bedrooms: property.description?.beds || property.beds,
+                  bathrooms: property.description?.baths || property.baths,
+                  propertyType: property.description?.type || property.property_type,
+                  lotSize: property.description?.lot_sqft || property.lot_size,
+                  lastSoldPrice: property.description?.sold_price,
+                  lastSoldDate: property.description?.sold_date,
+                  zestimate: property.estimate?.estimate,
+                  dataSource: 'realtor_direct',
+                  raw_data: property
+                };
+              }
+            }
+          } else {
+            console.log(`[Realtor] URL ${realtorUrl} failed with status: ${response.status}`);
+          }
+          
+          // Add delay between URL attempts to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+        } catch (urlError) {
+          console.log(`[Realtor] URL ${realtorUrl} threw error:`, urlError.message);
+          continue;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('[Realtor] Direct URL lookup error:', error);
+      return null;
+    }
+  }
+  
+  // Search properties by address (for address validation and getting property_id)
+  async searchPropertiesByAddress(address) {
+    try {
+      // First try direct URL lookup for exact address
+      const directResult = await this.getPropertyByDirectURL(address);
+      if (directResult) {
+        console.log(`[Realtor] Found property via direct URL lookup`);
+        return [directResult]; // Return as array for consistency
+      }
+      
+      await this.waitForRateLimit();
+      
+      console.log(`[Realtor] Falling back to area search for: ${address}`);
       
       // Extract city/state from address for search
       const addressParts = this.parseAddress(address);
