@@ -6,7 +6,7 @@ import PropertyEnhancementService from './services/propertyEnhancementService';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-const PVSCalculator = () => {
+const ROICalculator = () => {
   // State for the wizard steps
   const [step, setStep] = useState(1);
   
@@ -17,7 +17,7 @@ const PVSCalculator = () => {
   const [efficiency, setEfficiency] = useState('0.90');
   
   // Result state
-  const [pvsScore, setPvsScore] = useState(null);
+  const [roiScore, setRoiScore] = useState(null);
   
   // Property form state
   const [propertyForm, setPropertyForm] = useState({
@@ -1142,8 +1142,8 @@ const PVSCalculator = () => {
 
   
   
-  // Calculate PVS
-  const calculatePVS = () => {
+  // Calculate ROI
+  const calculateROI = () => {
     if (!livesSaved || !budget || properties.length === 0) return;
     
     // Calculate total property value (exclude properties with missing data)
@@ -1158,10 +1158,10 @@ const PVSCalculator = () => {
     // Parse budget (remove non-numeric characters)
     const parsedBudget = parseFloat(budget.replace(/[^0-9.]/g, ''));
     
-    // Calculate PVS
+    // Calculate ROI
     const pvsValue = (totalValue / parsedBudget) * parseFloat(efficiency);
     
-    setPvsScore({
+    setRoiScore({
       score: pvsValue.toFixed(1),
       livesSavedValue,
       totalPropertyValue,
@@ -1196,12 +1196,12 @@ const PVSCalculator = () => {
     setProperties([]);
     setBudget('');
     setEfficiency('0.90');
-    setPvsScore(null);
+    setRoiScore(null);
   };
 
   // Generate PDF Report
   const generatePDFReport = () => {
-    if (!pvsScore) return;
+    if (!roiScore) return;
 
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
@@ -1216,7 +1216,7 @@ const PVSCalculator = () => {
     // Header
     doc.setFontSize(24);
     doc.setFont(undefined, 'bold');
-    doc.text('Fire Department PVS Report', pageWidth / 2, 25, { align: 'center' });
+    doc.text('Fire Department ROI Report', pageWidth / 2, 25, { align: 'center' });
     
     doc.setFontSize(12);
     doc.setFont(undefined, 'normal');
@@ -1227,21 +1227,21 @@ const PVSCalculator = () => {
     doc.setLineWidth(0.5);
     doc.line(margin, 48, pageWidth - margin, 48);
 
-    // PVS Score Box - PROMINENTLY AT THE TOP
+    // ROI Score Box - PROMINENTLY AT THE TOP
     let yPosition = 60;
     
-    // Draw a highlight box for PVS Score
+    // Draw a highlight box for ROI Score
     doc.setFillColor(59, 130, 246); // Blue color
     doc.setTextColor(255, 255, 255); // White text
     doc.roundedRect(margin, yPosition - 10, pageWidth - 2 * margin, 30, 3, 3, 'F');
     
     doc.setFontSize(28);
     doc.setFont(undefined, 'bold');
-    doc.text(`PVS SCORE: ${pvsScore.score}`, pageWidth / 2, yPosition + 5, { align: 'center' });
+    doc.text(`ROI SCORE: ${roiScore.score}`, pageWidth / 2, yPosition + 5, { align: 'center' });
     
     doc.setFontSize(14);
     doc.setFont(undefined, 'normal');
-    doc.text(`For every $1 spent, your department generates $${pvsScore.score} in societal value`, 
+    doc.text(`For every $1 spent, your department generates $${roiScore.score} in societal value`, 
              pageWidth / 2, yPosition + 15, { align: 'center' });
     
     // Reset text color
@@ -1260,9 +1260,9 @@ const PVSCalculator = () => {
     const summaryData = [
       ['Lives Saved', livesSaved],
       ['Properties Protected', properties.length.toString()],
-      ['Annual Operating Budget', formatCurrency(pvsScore.budget)],
-      ['Efficiency Multiplier', pvsScore.efficiency],
-      ['Total Value Generated', formatCurrency(pvsScore.livesSavedValue + pvsScore.totalPropertyValue)]
+      ['Annual Operating Budget', formatCurrency(roiScore.budget)],
+      ['Efficiency Multiplier', roiScore.efficiency],
+      ['Total Value Generated', formatCurrency(roiScore.livesSavedValue + roiScore.totalPropertyValue)]
     ];
 
     autoTable(doc, {
@@ -1283,20 +1283,20 @@ const PVSCalculator = () => {
     // Formula Breakdown
     doc.setFontSize(16);
     doc.setFont(undefined, 'bold');
-    doc.text('PVS Calculation Breakdown', margin, yPosition);
+    doc.text('ROI Calculation Breakdown', margin, yPosition);
     yPosition += 10;
 
     doc.setFontSize(11);
     doc.setFont(undefined, 'normal');
     
     const formulaData = [
-      ['Lives Saved Value', `${livesSaved} lives × $7,000,000 VSL`, formatCurrency(pvsScore.livesSavedValue)],
-      ['Property Replacement Value', 'NFIRS Calculated', formatCurrency(pvsScore.totalPropertyValue)],
-      ['Total Value Preserved', '', formatCurrency(pvsScore.livesSavedValue + pvsScore.totalPropertyValue)],
-      ['Annual Operating Cost', '', formatCurrency(pvsScore.budget)],
-      ['Efficiency Multiplier', '', pvsScore.efficiency],
+      ['Lives Saved Value', `${livesSaved} lives × $7,000,000 VSL`, formatCurrency(roiScore.livesSavedValue)],
+      ['Property Replacement Value', 'NFIRS Calculated', formatCurrency(roiScore.totalPropertyValue)],
+      ['Total Value Preserved', '', formatCurrency(roiScore.livesSavedValue + roiScore.totalPropertyValue)],
+      ['Annual Operating Cost', '', formatCurrency(roiScore.budget)],
+      ['Efficiency Multiplier', roiScore.efficiency],
       ['', '', ''],
-      ['PVS Score', '(Total Value / Budget) × Efficiency', pvsScore.score]
+      ['ROI Score', '(Total Value / Budget) × Efficiency', roiScore.score]
     ];
 
     // Add local multiplier transparency if applicable
@@ -1307,7 +1307,7 @@ const PVSCalculator = () => {
         const multiplier = p.localMultiplier || 1;
         return sum + (p.value ? p.value / multiplier : 0);
       }, 0);
-      const adjustment = pvsScore.totalPropertyValue - baselineValue;
+      const adjustment = roiScore.totalPropertyValue - baselineValue;
       
       // Insert the adjustment info after Property Replacement Value
       formulaData.splice(2, 0, [
@@ -1438,7 +1438,7 @@ const PVSCalculator = () => {
     }
 
     // Save the PDF
-    doc.save(`NFIRS_PVS_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`NFIRS_ROI_Report_${new Date().toISOString().split('T')[0]}.pdf`);
   };
   
   return (
@@ -1446,7 +1446,7 @@ const PVSCalculator = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center mb-12">
           <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
-            Fire Department PVS Calculator
+            Fire Department ROI Calculator
           </h1>
           <div className="max-w-3xl mx-auto">
             <p className="text-xl text-gray-600 mb-2">
@@ -2838,7 +2838,7 @@ const PVSCalculator = () => {
                 </div>
                 <div className="ml-3">
                   <h3 className="text-sm font-medium text-red-800">
-                    Missing Required Data - Cannot Proceed to PVS Calculation
+                    Missing Required Data - Cannot Proceed to ROI Calculation
                   </h3>
                   <div className="mt-2 text-sm text-red-700">
                     <p>NFIRS replacement cost calculations require complete building data. Please either:</p>
@@ -2927,7 +2927,7 @@ const PVSCalculator = () => {
                 ← Back
               </button>
               <button
-                onClick={calculatePVS}
+                onClick={calculateROI}
                 disabled={!budget}
                 className={`px-8 py-3 rounded-lg font-semibold text-lg transition-all duration-200 ${
                   budget 
@@ -2935,24 +2935,24 @@ const PVSCalculator = () => {
                     : 'bg-gray-200 text-gray-500 cursor-not-allowed'
                 }`}
               >
-                Calculate PVS →
+                Calculate ROI →
               </button>
             </div>
           </div>
         )}
       
         {/* Step 4: Results */}
-        {step === 4 && pvsScore && (
+        {step === 4 && roiScore && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 lg:p-12">
-            <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-8">PVS Calculation Results</h2>
+            <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-8">ROI Calculation Results</h2>
             
             <div className="text-center mb-12">
               <div className="bg-blue-50 rounded-xl p-8 mb-6">
                 <div className="text-6xl lg:text-7xl font-bold text-blue-600 mb-4">
-                  PVS = {pvsScore.score}
+                  ROI = {roiScore.score}
                 </div>
                 <p className="text-xl lg:text-2xl text-gray-700 font-medium">
-                  For every $1 spent, your department generates <span className="text-blue-600 font-bold">${pvsScore.score}</span> in societal value
+                  For every $1 spent, your department generates <span className="text-blue-600 font-bold">${roiScore.score}</span> in societal value
                 </p>
               </div>
             </div>
@@ -2962,12 +2962,12 @@ const PVSCalculator = () => {
             
             <div className="flex justify-between mb-2.5">
               <span>Lives Saved × Value of Statistical Life:</span>
-              <span className="font-bold">{formatCurrency(pvsScore.livesSavedValue)}</span>
+              <span className="font-bold">{formatCurrency(roiScore.livesSavedValue)}</span>
             </div>
             
             <div className="flex justify-between mb-2.5">
               <span>Property Replacement Value Preserved (NFIRS):</span>
-              <span className="font-bold">{formatCurrency(pvsScore.totalPropertyValue)}</span>
+              <span className="font-bold">{formatCurrency(roiScore.totalPropertyValue)}</span>
             </div>
             
             {/* Show local multiplier impact if any properties have multiplier > 1 */}
@@ -2979,7 +2979,7 @@ const PVSCalculator = () => {
                   const multiplier = p.localMultiplier || 1;
                   return sum + (p.value ? p.value / multiplier : 0);
                 }, 0);
-                const adjustment = pvsScore.totalPropertyValue - baselineValue;
+                const adjustment = roiScore.totalPropertyValue - baselineValue;
                 
                 return (
                   <div className="flex justify-between mb-2.5 text-sm text-blue-600">
@@ -2995,12 +2995,12 @@ const PVSCalculator = () => {
             
             <div className="flex justify-between mb-2.5">
               <span>Annual Operating Cost:</span>
-              <span className="font-bold">{formatCurrency(pvsScore.budget)}</span>
+              <span className="font-bold">{formatCurrency(roiScore.budget)}</span>
             </div>
             
             <div className="flex justify-between mb-2.5">
               <span>Efficiency Multiplier:</span>
-              <span className="font-bold">{pvsScore.efficiency}</span>
+              <span className="font-bold">{roiScore.efficiency}</span>
             </div>
             
             <div className="border-t border-gray-200 pt-2.5 mt-2.5">
@@ -3056,4 +3056,4 @@ const PVSCalculator = () => {
   );
 };
 
-export default PVSCalculator;
+export default ROICalculator;
