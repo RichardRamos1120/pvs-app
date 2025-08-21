@@ -295,7 +295,7 @@ const ROICalculator = () => {
   
   // VSL_BASE constant is defined at the top of the file
   
-  // NFIRS Property Value Calculation Tables
+  // NERIS Property Value Calculation Tables
   const baseCostPerSqFt = {
     residential: {
       single_family: 120,
@@ -350,9 +350,9 @@ const ROICalculator = () => {
     999: 0.60 // 50+ years
   };
   
-  // Calculate NFIRS property value
-  const calculateNFIRSValue = (propertyData) => {
-    // Check if we have required data for NFIRS calculation
+  // Calculate NERIS property value
+  const calculateNERISValue = (propertyData) => {
+    // Check if we have required data for NERIS calculation
     if (!propertyData.squareFootage || !propertyData.yearBuilt) {
       // Return null to indicate calculation not possible
       return null;
@@ -391,14 +391,14 @@ const ROICalculator = () => {
     return Math.round(finalValue);
   };
   
-  // Add a property using NFIRS calculation
+  // Add a property using NERIS calculation
   const addProperty = () => {
     if (!propertyForm.address || !propertyForm.squareFootage || !propertyForm.yearBuilt) {
       alert('Please fill in required fields: Address, Square Footage, and Year Built');
       return;
     }
     
-    const propertyValue = calculateNFIRSValue(propertyForm);
+    const propertyValue = calculateNERISValue(propertyForm);
     
     setProperties([
       ...properties,
@@ -457,11 +457,11 @@ const ROICalculator = () => {
     console.log(`Property marketPrice:`, newProperties[index].marketPrice);
     console.log(`Property marketValueSource:`, newProperties[index].marketValueSource);
     
-    // Recalculate NFIRS value if we now have complete data
+    // Recalculate NERIS value if we now have complete data
     if (field === 'yearBuilt' || field === 'squareFootage') {
       const updatedProperty = newProperties[index];
       if (updatedProperty.yearBuilt && updatedProperty.squareFootage) {
-        const newValue = calculateNFIRSValue(updatedProperty);
+        const newValue = calculateNERISValue(updatedProperty);
         newProperties[index].value = newValue;
       }
     }
@@ -487,7 +487,7 @@ const ROICalculator = () => {
           bathrooms: neighbor.bathrooms
         });
         
-        // Use real Zillow building data for accurate NFIRS calculation
+        // Use real Zillow building data for accurate NERIS calculation
         const hasRealZillowData = neighbor.price || neighbor.zestimate || neighbor.livingArea;
         
         if (hasRealZillowData) {
@@ -495,7 +495,7 @@ const ROICalculator = () => {
           const hasYearBuilt = neighbor.yearBuilt && neighbor.yearBuilt !== null;
           const hasSquareFootage = neighbor.livingArea && neighbor.livingArea > 0;
           
-          // Use Zillow building data for accurate NFIRS inputs
+          // Use Zillow building data for accurate NERIS inputs
           let property = {
             address: neighbor.address,
             incidentId: '',
@@ -529,8 +529,8 @@ const ROICalculator = () => {
             }
           }
           
-          // Calculate NFIRS replacement cost using available data
-          const value = calculateNFIRSValue(property);
+          // Calculate NERIS replacement cost using available data
+          const value = calculateNERISValue(property);
           
           return {
             ...property,
@@ -538,7 +538,7 @@ const ROICalculator = () => {
             id: Date.now() + Math.random()
           };
         } else {
-          // Fallback to NFIRS calculation if no real data available
+          // Fallback to NERIS calculation if no real data available
           const fields = neighbor.fields || {};
           
           const property = {
@@ -557,7 +557,7 @@ const ROICalculator = () => {
             dataSource: 'nfirs' // Flag to identify this was estimated
           };
           
-          const value = calculateNFIRSValue(property);
+          const value = calculateNERISValue(property);
           
           return {
             ...property,
@@ -723,7 +723,7 @@ const ROICalculator = () => {
       }
 
       try {
-        const value = calculateNFIRSValue(property);
+        const value = calculateNERISValue(property);
         const newProperty = {
           ...property,
           value,
@@ -731,7 +731,7 @@ const ROICalculator = () => {
         };
         properties.push(newProperty);
       } catch (error) {
-        errors.push(`Row ${i + 1}: Error calculating NFIRS value - ${error.message}`);
+        errors.push(`Row ${i + 1}: Error calculating NERIS value - ${error.message}`);
       }
     }
     return { properties, errors };
@@ -1090,7 +1090,7 @@ const ROICalculator = () => {
         });
         
         if (neighborData.neighbors && neighborData.neighbors.length > 0) {
-          // Process neighbors and add NFIRS values
+          // Process neighbors and add NERIS values
           const processedNeighbors = [];
           
           for (const neighbor of neighborData.neighbors) {
@@ -1171,7 +1171,7 @@ const ROICalculator = () => {
                 }
               }
               
-              const value = calculateNFIRSValue(neighborProperty);
+              const value = calculateNERISValue(neighborProperty);
               
               processedNeighbors.push({
                 ...neighborProperty,
@@ -1287,7 +1287,7 @@ const ROICalculator = () => {
         const hasYearBuilt = neighbor.yearBuilt && neighbor.yearBuilt !== null;
         const hasSquareFootage = neighbor.livingArea && neighbor.livingArea > 0;
         
-        // Use Zillow building data for accurate NFIRS inputs
+        // Use Zillow building data for accurate NERIS inputs
         const property = {
           address: neighbor.address,
           incidentId: '',
@@ -1305,7 +1305,7 @@ const ROICalculator = () => {
           id: Date.now() + Math.random()
         };
         
-        const value = calculateNFIRSValue(property);
+        const value = calculateNERISValue(property);
         return {
           ...property,
           value
@@ -1329,7 +1329,7 @@ const ROICalculator = () => {
           id: Date.now() + Math.random()
         };
         
-        const value = calculateNFIRSValue(property);
+        const value = calculateNERISValue(property);
         return {
           ...property,
           value
@@ -1473,8 +1473,8 @@ const ROICalculator = () => {
     doc.setFontSize(12);
     doc.setFont(undefined, 'normal');
     doc.text(lifeCalculationMode === 'advanced' ? 
-      'Advanced Life Valuation Model & NFIRS Standards' : 
-      'Simple Life Valuation & NFIRS Standards', 
+      'Advanced Life Valuation Model & NERIS Standards' : 
+      'Simple Life Valuation & NERIS Standards', 
       pageWidth / 2, 35, { align: 'center' });
     doc.text(`Report Generated: ${currentDate}`, pageWidth / 2, 42, { align: 'center' });
 
@@ -1567,7 +1567,7 @@ const ROICalculator = () => {
       formulaData.push(['Lives Saved Value (Simple)', `${livesSaved} × $7,000,000`, formatCurrency(roiScore.livesSavedValue)]);
     }
     
-    formulaData.push(['Property Replacement Value', 'NFIRS Calculated', formatCurrency(roiScore.totalPropertyValue)]);
+    formulaData.push(['Property Replacement Value', 'NERIS Calculated', formatCurrency(roiScore.totalPropertyValue)]);
     formulaData.push(['Total Value Preserved', '', formatCurrency(roiScore.livesSavedValue + roiScore.totalPropertyValue)]);
     formulaData.push(['Annual Operating Cost', '', formatCurrency(roiScore.budget)]);
     formulaData.push(['Efficiency Multiplier', roiScore.efficiency, '']);
@@ -1740,7 +1740,7 @@ const ROICalculator = () => {
     // Properties Table
     doc.setFontSize(16);
     doc.setFont(undefined, 'bold');
-    doc.text('Properties Protected - NFIRS Valuation', margin, yPosition);
+    doc.text('Properties Protected - NERIS Reconstruction Cost', margin, yPosition);
     yPosition += 10;
 
     // Prepare properties data for table
@@ -1782,13 +1782,13 @@ const ROICalculator = () => {
     });
 
     // Add total row
-    const totalNFIRS = properties.reduce((sum, p) => sum + (p.value || 0), 0);
+    const totalNERIS = properties.reduce((sum, p) => sum + (p.value || 0), 0);
     const totalMarketValue = properties.reduce((sum, p) => sum + (p.marketPrice || p.zestimate || 0), 0);
     propertiesData.push([
       'TOTAL',
       '',
       '',
-      formatCurrency(totalNFIRS),
+      formatCurrency(totalNERIS),
       formatCurrency(totalMarketValue),
       ''
     ]);
@@ -1799,7 +1799,7 @@ const ROICalculator = () => {
 
     autoTable(doc, {
       startY: yPosition,
-      head: [['Address', 'Sq Ft', 'Year', 'NFIRS Value', 'Market Value', 'Market Source']],
+      head: [['Address', 'Sq Ft', 'Year', 'NERIS Cost', 'Market Value', 'Market Source']],
       body: propertiesData,
       theme: 'grid',
       headStyles: { fillColor: [59, 130, 246], textColor: 255, fontSize: 9 },
@@ -1832,16 +1832,17 @@ const ROICalculator = () => {
       doc.setFont(undefined, 'italic');
       doc.setTextColor(100, 100, 100);
       if (lifeCalculationMode === 'advanced') {
-        doc.text('Life Valuation: Based on 2024 CDC life expectancy data, EPA/DOT VSL standards, QALY research,', margin, footerY - 30);
-        doc.text('and established actuarial science for medical emergency outcomes.', margin, footerY - 25);
+        doc.text('Life Valuation: Based on 2024 CDC life expectancy data, EPA/DOT VSL standards, QALY research,', margin, footerY - 35);
+        doc.text('and established actuarial science for medical emergency outcomes.', margin, footerY - 30);
       }
-      doc.text('Property Valuation: NFIRS replacement costs using construction type, square footage, age depreciation,', margin, footerY - 25);
-      doc.text('condition factors, and local market multipliers per fire department emergency response standards.', margin, footerY - 20);
-      doc.text('Market Value Sources: Individual property sources listed in table above (Zillow, Realtor.com, Manual Entry).', margin, footerY - 15);
+      doc.text('NERIS Reconstruction Cost: National Emergency Response Information System methodology calculates the cost to', margin, footerY - 25);
+      doc.text('reconstruct buildings using current construction standards, based on type, size, age, and condition factors.', margin, footerY - 20);
+      doc.text('Formula: Square Footage × Base Cost × Construction Type × Condition × Age Factor × Local Market', margin, footerY - 15);
+      doc.text('Market Value Sources: Individual property sources listed in table above (Zillow, Realtor.com, Manual Entry).', margin, footerY - 10);
       
       // Data source transparency note
       doc.setFont(undefined, 'normal');
-      doc.text('All data sources are clearly documented for government transparency and audit compliance.', margin, footerY - 10);
+      doc.text('All data sources are clearly documented for government transparency and audit compliance.', margin, footerY - 5);
     }
 
     // Page numbers on all pages
@@ -1854,7 +1855,7 @@ const ROICalculator = () => {
     }
 
     // Save the PDF
-    doc.save(`NFIRS_ROI_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`NERIS_ROI_Report_${new Date().toISOString().split('T')[0]}.pdf`);
   };
   
   return (
@@ -1866,7 +1867,7 @@ const ROICalculator = () => {
           </h1>
           <div className="max-w-3xl mx-auto">
             <p className="text-xl text-gray-600 mb-2">
-              NFIRS Emergency Response Standards
+              NERIS Emergency Response Standards
             </p>
             <p className="text-gray-500">
               Calculate property replacement costs and public value scores for emergency response planning
@@ -1887,7 +1888,7 @@ const ROICalculator = () => {
                   </div>
                   <div className={`text-sm font-medium ${step >= num ? 'text-blue-600' : 'text-gray-500'}`}>
                     {num === 1 ? 'Lives Saved' : 
-                     num === 2 ? 'Properties (NFIRS)' : 
+                     num === 2 ? 'Properties (NERIS)' : 
                      num === 3 ? 'Budget & Efficiency' : 'Results'}
                   </div>
                 </div>
@@ -2003,24 +2004,32 @@ const ROICalculator = () => {
                 {/* Advanced Lives Saved Table */}
                 {livesSavedAdvanced.length > 0 && (
                   <div className="overflow-x-auto">
-                    <table className="w-full border border-gray-200 rounded-lg">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-3 py-3 text-left text-sm font-semibold text-gray-700">Incident ID</th>
-                          <th className="px-3 py-3 text-left text-sm font-semibold text-gray-700">Age</th>
-                          <th className="px-3 py-3 text-left text-sm font-semibold text-gray-700">Gender</th>
-                          <th className="px-3 py-3 text-left text-sm font-semibold text-gray-700">Incident Type</th>
-                          <th className="px-3 py-3 text-left text-sm font-semibold text-gray-700">Severity</th>
-                          <th className="px-3 py-3 text-left text-sm font-semibold text-gray-700">Conditions</th>
-                          <th className="px-3 py-3 text-left text-sm font-semibold text-gray-700">Life Value</th>
-                          <th className="px-3 py-3 text-center text-sm font-semibold text-gray-700">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {livesSavedAdvanced.map((life, index) => (
+                    {livesSavedAdvanced.length > 5 && (
+                      <div className="mb-2 text-sm text-blue-600 bg-blue-50 p-2 rounded border border-blue-200">
+                        💡 Table is scrollable - showing {livesSavedAdvanced.length} entries (latest entries first)
+                      </div>
+                    )}
+                    <div className={`${livesSavedAdvanced.length > 5 ? 'max-h-80 overflow-y-auto' : ''} border border-gray-200 rounded-lg`}>
+                      <table className="w-full">
+                        <thead className="bg-gray-50 sticky top-0">
+                          <tr>
+                            <th className="px-3 py-3 text-left text-sm font-semibold text-gray-700">Incident ID</th>
+                            <th className="px-3 py-3 text-left text-sm font-semibold text-gray-700">Age</th>
+                            <th className="px-3 py-3 text-left text-sm font-semibold text-gray-700">Gender</th>
+                            <th className="px-3 py-3 text-left text-sm font-semibold text-gray-700">Incident Type</th>
+                            <th className="px-3 py-3 text-left text-sm font-semibold text-gray-700">Severity</th>
+                            <th className="px-3 py-3 text-left text-sm font-semibold text-gray-700">Conditions</th>
+                            <th className="px-3 py-3 text-left text-sm font-semibold text-gray-700">Life Value</th>
+                            <th className="px-3 py-3 text-center text-sm font-semibold text-gray-700">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200 bg-white">
+                          {livesSavedAdvanced.slice().reverse().map((life, index) => {
+                            const originalIndex = livesSavedAdvanced.length - 1 - index;
+                            return (
                           <tr key={index} className="hover:bg-gray-50">
                             <td className="px-3 py-3 text-sm text-gray-900 font-medium">
-                              {life.incidentId || `AUTO-${index + 1}`}
+                              {life.incidentId || `AUTO-${originalIndex + 1}`}
                             </td>
                             <td className="px-3 py-3 text-sm text-gray-900">{life.age} years</td>
                             <td className="px-3 py-3 text-sm text-gray-900 capitalize">{life.gender}</td>
@@ -2047,16 +2056,17 @@ const ROICalculator = () => {
                             </td>
                             <td className="px-3 py-3 text-sm text-center">
                               <button
-                                onClick={() => removeLifeSavedAdvanced(index)}
+                                onClick={() => removeLifeSavedAdvanced(originalIndex)}
                                 className="text-red-600 hover:text-red-800 font-medium"
                               >
                                 Remove
                               </button>
                             </td>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        )})}
+                        </tbody>
+                      </table>
+                    </div>
                     <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                       <div className="flex justify-between items-center">
                         <span className="text-lg font-semibold text-gray-700">Total Advanced Life Value:</span>
@@ -2102,10 +2112,10 @@ const ROICalculator = () => {
           </div>
         )}
       
-        {/* Step 2: Properties with NFIRS Data */}
+        {/* Step 2: Properties with NERIS Data */}
         {step === 2 && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 lg:p-12">
-            <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-6">Step 2: Properties Saved (NFIRS Method)</h2>
+            <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-6">Step 2: Properties Saved (NERIS Method)</h2>
           
             <div className="mb-8">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -2139,13 +2149,13 @@ const ROICalculator = () => {
                 </button>
               </div>
               <p className="text-gray-600 bg-blue-50 p-4 rounded-lg">
-                Add properties manually or upload multiple properties via CSV using NFIRS emergency response standards
+                Add properties manually or upload multiple properties via CSV using NERIS emergency response standards
               </p>
             </div>
           
           {showAddForm && (
             <div className="border border-gray-200 rounded-lg p-5 mb-5 bg-gray-50">
-              <h3 className="text-lg font-bold mb-5">Add Property - Calculate NFIRS Replacement Cost</h3>
+              <h3 className="text-lg font-bold mb-5">Add Property - Calculate NERIS Replacement Cost</h3>
               
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
@@ -2340,7 +2350,7 @@ const ROICalculator = () => {
                 <div className="bg-yellow-100 px-3 py-2 rounded text-sm">
                   <strong>Estimated Replacement Cost: </strong>
                   {propertyForm.squareFootage && propertyForm.yearBuilt ? 
-                    formatCurrency(calculateNFIRSValue(propertyForm)) : 
+                    formatCurrency(calculateNERISValue(propertyForm)) : 
                     'Fill required fields to see estimate'
                   }
                 </div>
@@ -2469,7 +2479,7 @@ const ROICalculator = () => {
                               <th className="p-2 text-center border">Type</th>
                               <th className="p-2 text-center border">Sq Ft</th>
                               <th className="p-2 text-center border">Year</th>
-                              <th className="p-2 text-right border">NFIRS Value</th>
+                              <th className="p-2 text-right border">NERIS Cost</th>
                               <th className="p-2 text-right border">Est. Market Value</th>
                             </tr>
                           </thead>
@@ -2855,7 +2865,7 @@ const ROICalculator = () => {
                                     <th className="p-3 text-center border-b">Category</th>
                                     <th className="p-3 text-center border-b">Sq Ft</th>
                                     <th className="p-3 text-center border-b">Year</th>
-                                    <th className="p-3 text-right border-b">NFIRS Value</th>
+                                    <th className="p-3 text-right border-b">NERIS Cost</th>
                                     <th className="p-3 text-right border-b">Est. Market Value</th>
                                   </tr>
                                 </thead>
@@ -3001,7 +3011,7 @@ const ROICalculator = () => {
                           const updatedProperties = properties.map(property => ({
                             ...property,
                             localMultiplier: parseFloat(newMultiplier),
-                            value: calculateNFIRSValue({
+                            value: calculateNERISValue({
                               ...property,
                               localMultiplier: parseFloat(newMultiplier)
                             })
@@ -3030,7 +3040,7 @@ const ROICalculator = () => {
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                     </svg>
                     <span className="text-sm font-medium text-amber-800">
-                      Action Required: Complete missing building data in red-highlighted fields below for accurate NFIRS calculations
+                      Action Required: Complete missing building data in red-highlighted fields below for accurate NERIS calculations
                     </span>
                   </div>
                 </div>
@@ -3130,7 +3140,7 @@ const ROICalculator = () => {
                           </button>
                         )}
                         {!property.squareFootage && (
-                          <div className="text-xs text-red-600 mt-1">Required for NFIRS</div>
+                          <div className="text-xs text-red-600 mt-1">Required for NERIS</div>
                         )}
                       </td>
                       <td className="p-3 text-center border-b border-gray-200 text-sm">
@@ -3206,14 +3216,14 @@ const ROICalculator = () => {
                           </button>
                         )}
                         {!property.yearBuilt && (
-                          <div className="text-xs text-red-600 mt-1">Required for NFIRS</div>
+                          <div className="text-xs text-red-600 mt-1">Required for NERIS</div>
                         )}
                       </td>
                       <td className="p-3 text-right border-b border-gray-200 text-sm font-bold">
                         {property.value ? formatCurrency(property.value) : 
                          <span className="text-gray-400 italic">Cannot calculate - missing data</span>}
                         <div className="text-xs text-gray-500 mt-1">
-                          <span className="text-blue-600">NFIRS Estimate</span>
+                          <span className="text-blue-600">NERIS Estimate</span>
                         </div>
                       </td>
                       <td className="p-3 text-right border-b border-gray-200 text-sm">
@@ -3438,7 +3448,7 @@ const ROICalculator = () => {
             <div className="text-center p-10 bg-gray-50 border border-gray-200 rounded-lg mb-5">
               <p className="text-gray-500 mb-2">No properties added yet.</p>
               <p className="text-gray-500 text-sm">
-                Click "Add Property" to enter property details and calculate NFIRS replacement cost
+                Click "Add Property" to enter property details and calculate NERIS replacement cost
               </p>
             </div>
           )}
@@ -3457,7 +3467,7 @@ const ROICalculator = () => {
                     Missing Required Data - Cannot Proceed to ROI Calculation
                   </h3>
                   <div className="mt-2 text-sm text-red-700">
-                    <p>NFIRS replacement cost calculations require complete building data. Please either:</p>
+                    <p>NERIS replacement cost calculations require complete building data. Please either:</p>
                     <ul className="list-disc list-inside mt-2 space-y-1">
                       <li><strong>Enter missing data</strong> in the red-highlighted fields above, or</li>
                       <li><strong>Remove properties</strong> with incomplete data from the list</li>
@@ -3574,7 +3584,7 @@ const ROICalculator = () => {
             </div>
           
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-5 mb-8">
-            <h3 className="text-lg font-bold mb-4">Formula Breakdown (NFIRS Method)</h3>
+            <h3 className="text-lg font-bold mb-4">Formula Breakdown (NERIS Method)</h3>
             
             <div className="flex justify-between mb-2.5">
               <span>Lives Saved Value ({lifeCalculationMode === 'advanced' ? 'Advanced Model' : 'Simple Model'}):</span>
@@ -3605,7 +3615,7 @@ const ROICalculator = () => {
             )}
             
             <div className="flex justify-between mb-2.5">
-              <span>Property Replacement Value Preserved (NFIRS):</span>
+              <span>Property Replacement Value Preserved (NERIS):</span>
               <span className="font-bold">{formatCurrency(roiScore.totalPropertyValue)}</span>
             </div>
             
@@ -3646,9 +3656,19 @@ const ROICalculator = () => {
               <div className="font-bold mb-2">
                 Formula: ((Lives Saved Value + Property Value) / Budget) × Efficiency
               </div>
-              <div className="text-sm text-gray-500">
-                Property values calculated using NFIRS standard methodology including building dimensions, 
+              <div className="text-sm text-gray-500 mb-3">
+                Property values calculated using NERIS standard methodology including building dimensions, 
                 construction type, age depreciation, condition factors, and local market adjustments.
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+                <div className="font-semibold text-blue-900 mb-2">NERIS Reconstruction Cost Formula:</div>
+                <div className="text-blue-800 font-mono mb-1">
+                  Value = Square Footage × Base Cost × Construction Type × Condition × Age Factor × Local Market
+                </div>
+                <div className="text-blue-700 text-xs">
+                  Where base costs vary by property/structure type, and multipliers adjust for construction materials, 
+                  building condition, age depreciation, and local market conditions.
+                </div>
               </div>
             </div>
           </div>
@@ -3659,7 +3679,7 @@ const ROICalculator = () => {
                 className="flex items-center px-8 py-3 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-semibold text-lg transition-colors"
               >
                 <span className="mr-2">📄</span>
-                Download NFIRS Report (PDF)
+                Download NERIS Report (PDF)
               </button>
               <button
                 onClick={resetCalculator}
@@ -3877,12 +3897,12 @@ const ROICalculator = () => {
             <h4 className="text-xl font-bold text-gray-900 mb-6">Data Sources & Methodology</h4>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 text-gray-700">
               <div>
-                <p className="mb-4"><strong className="text-gray-900">Property Values:</strong> Market data sourced from <span className="text-blue-600">Zillow API</span> and <span className="text-green-600">Realtor.com API</span>. Replacement costs calculated using NFIRS (National Fire Incident Reporting System) emergency response standards.</p>
+                <p className="mb-4"><strong className="text-gray-900">Property Values:</strong> Market data sourced from <span className="text-blue-600">Zillow API</span> and <span className="text-green-600">Realtor.com API</span>. Replacement costs calculated using NERIS (National Fire Incident Reporting System) emergency response standards.</p>
                 <p className="mb-4"><strong className="text-gray-900">Data Sources:</strong> Property characteristics and market estimates are enhanced using multiple real estate data providers to ensure accuracy for emergency planning purposes.</p>
                 <p className="mb-4"><strong className="text-gray-900">Government Transparency:</strong> All data sources are clearly attributed in the application interface. When data from multiple sources is used, this is explicitly indicated.</p>
               </div>
               <div>
-                <p className="mb-4"><strong className="text-gray-900">NFIRS Calculations:</strong> Based on construction type, square footage, age depreciation, condition factors, and local market multipliers per fire department standards.</p>
+                <p className="mb-4"><strong className="text-gray-900">NERIS Reconstruction Cost:</strong> The National Emergency Response Information System (NERIS) methodology calculates the cost to reconstruct a building using current construction standards and materials. Based on construction type, square footage, age depreciation, condition factors, and local market multipliers per fire department standards.</p>
                 <p className="mb-4"><strong className="text-gray-900">Market Estimates:</strong> Zillow Zestimate® and Realtor.com valuations are automated valuation models (AVM). Actual property values may vary.</p>
                 <p><strong className="text-gray-900">Disclaimer:</strong> All estimates are for informational and emergency planning purposes only. Not for legal or financial decisions. Property data accuracy depends on source availability and currency.</p>
               </div>
