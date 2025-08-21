@@ -293,8 +293,7 @@ const ROICalculator = () => {
   const [selectedNeighbors, setSelectedNeighbors] = useState({}); // Track selected neighbors per address
   const [activeTab, setActiveTab] = useState(0); // Track active tab in neighbor preview
   
-  // Constants (keeping existing VSL for backward compatibility)
-  const VSL = 7000000; // Value of Statistical Life: $7 million
+  // VSL_BASE constant is defined at the top of the file
   
   // NFIRS Property Value Calculation Tables
   const baseCostPerSqFt = {
