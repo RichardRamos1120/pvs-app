@@ -1,0 +1,1679 @@
+import React, { useState } from 'react';
+
+const PVSCalculator = () => {
+  // State for the wizard steps
+  const [step, setStep] = useState(1);
+  
+  // Form data state
+  const [livesSaved, setLivesSaved] = useState([]);
+  const [properties, setProperties] = useState([]);
+  const [budget, setBudget] = useState('');
+  const [efficiency, setEfficiency] = useState('0.90');
+  
+  // Result state
+  const [pvsScore, setPvsScore] = useState(null);
+  
+  // Life saved form state
+  const [lifeForm, setLifeForm] = useState({
+    age: '',
+    gender: 'male',
+    incidentType: 'cardiac_arrest',
+    incidentSeverity: 'moderate',
+    preExistingConditions: 'none',
+    responseTime: '',
+    treatmentLocation: 'field',
+    incidentId: ''
+  });
+  const [showLifeForm, setShowLifeForm] = useState(false);
+  
+  // Property form state
+  const [propertyForm, setPropertyForm] = useState({
+    address: '',
+    incidentId: '',
+    propertyType: 'residential',
+    occupancyType: 'R3',
+    yearBuilt: '',
+    squareFootage: '',
+    stories: '1',
+    constructionType: 'VB',
+    exteriorWalls: 'wood_frame',
+    roofMaterial: 'asphalt_shingle',
+    condition: 'good',
+    fireProtection: 'none',
+    localMultiplier: '1.0'
+  });
+  const [showAddForm, setShowAddForm] = useState(false);
+  
+  // Constants
+  const VSL_BASE = 7000000; // Base Value of Statistical Life: $7 million
+  
+  // Life expectancy data (2024 CDC data)
+  const lifeExpectancyData = {
+    male: {
+      0: 76.1, 5: 71.3, 10: 66.4, 15: 61.4, 20: 56.6, 25: 51.9, 30: 47.2, 35: 42.5,
+      40: 37.9, 45: 33.4, 50: 29.1, 55: 25.0, 60: 21.2, 65: 17.7, 70: 14.4, 75: 11.5,
+      80: 8.9, 85: 6.8, 90: 5.1, 95: 3.8
+    },
+    female: {
+      0: 81.1, 5: 76.2, 10: 71.2, 15: 66.3, 20: 61.3, 25: 56.4, 30: 51.5, 35: 46.6,
+      40: 41.8, 45: 37.1, 50: 32.5, 55: 28.1, 60: 23.9, 65: 19.9, 70: 16.1, 75: 12.7,
+      80: 9.7, 85: 7.2, 90: 5.3, 95: 3.9
+    }
+  };
+  
+  // Quality-adjusted life year factors by incident type and severity
+  const qolyFactors = {
+    cardiac_arrest: {
+      mild: 0.95,      // Full recovery expected
+      moderate: 0.85,  // Some cardiac function impact
+      severe: 0.70,    // Significant long-term cardiac issues
+      critical: 0.55   // Major complications, reduced life expectancy
+    },
+    respiratory_emergency: {
+      mild: 0.98,
+      moderate: 0.90,
+      severe: 0.75,
+      critical: 0.60
+    },
+    trauma_blunt: {
+      mild: 0.95,
+      moderate: 0.85,
+      severe: 0.70,
+      critical: 0.50
+    },
+    trauma_penetrating: {
+      mild: 0.90,
+      moderate: 0.80,
+      severe: 0.65,
+      critical: 0.45
+    },
+    burns: {
+      mild: 0.95,
+      moderate: 0.80,
+      severe: 0.60,
+      critical: 0.40
+    },
+    overdose_poisoning: {
+      mild: 0.95,
+      moderate: 0.88,
+      severe: 0.75,
+      critical: 0.65
+    },
+    stroke: {
+      mild: 0.90,
+      moderate: 0.75,
+      severe: 0.60,
+      critical: 0.45
+    },
+    drowning: {
+      mild: 0.95,
+      moderate: 0.80,
+      severe: 0.65,
+      critical: 0.50
+    },
+    electrocution: {
+      mild: 0.90,
+      moderate: 0.80,
+      severe: 0.65,
+      critical: 0.50
+    },
+    allergic_reaction: {
+      mild: 0.98,
+      moderate: 0.95,
+      severe: 0.85,
+      critical: 0.75
+    },
+    other_medical: {
+      mild: 0.95,
+      moderate: 0.85,
+      severe: 0.70,
+      critical: 0.55
+    }
+  };
+  
+  // Pre-existing condition modifiers
+  const preExistingModifiers = {
+    none: 1.00,
+    diabetes: 0.92,
+    heart_disease: 0.85,
+    copd: 0.80,
+    cancer_remission: 0.88,
+    cancer_active: 0.65,
+    kidney_disease: 0.82,
+    obesity: 0.90,
+    hypertension: 0.95,
+    multiple_conditions: 0.75
+  };
+  
+  // Age-based value adjustments (productivity and social value considerations)
+  const ageValueMultipliers = {
+    0: 0.85,   // Infant (0-1)
+    1: 1.00,   // Toddler (1-4)
+    5: 1.05,   // Child (5-14)
+    15: 1.10,  // Teen (15-19)
+    20: 1.15,  // Young Adult (20-29)
+    30: 1.20,  // Adult (30-39)
+    40: 1.15,  // Middle Age (40-49)
+    50: 1.05,  // Mature (50-59)
+    60: 0.95,  // Pre-retirement (60-69)
+    70: 0.80,  // Elderly (70-79)
+    80: 0.65,  // Very Elderly (80-89)
+    90: 0.50   // Advanced Age (90+)
+  };
+  
+  // Calculate remaining life expectancy
+  const getRemainingLifeExpectancy = (age, gender) => {
+    const ageGroups = Object.keys(lifeExpectancyData[gender]).map(Number).sort((a, b) => a - b);
+    
+    // Find the appropriate age group
+    let lowerAge = 0;
+    let upperAge = 5;
+    
+    for (let i = 0; i < ageGroups.length - 1; i++) {
+      if (age >= ageGroups[i] && age < ageGroups[i + 1]) {
+        lowerAge = ageGroups[i];
+        upperAge = ageGroups[i + 1];
+        break;
+      }
+    }
+    
+    // If age is beyond our data, use the last available data point
+    if (age >= ageGroups[ageGroups.length - 1]) {
+      return lifeExpectancyData[gender][ageGroups[ageGroups.length - 1]];
+    }
+    
+    // Linear interpolation between age groups
+    const lowerExpectancy = lifeExpectancyData[gender][lowerAge];
+    const upperExpectancy = lifeExpectancyData[gender][upperAge];
+    const ratio = (age - lowerAge) / (upperAge - lowerAge);
+    
+    return lowerExpectancy - (ratio * (lowerExpectancy - upperExpectancy));
+  };
+  
+  // Get age-based value multiplier
+  const getAgeValueMultiplier = (age) => {
+    const ageGroups = Object.keys(ageValueMultipliers).map(Number).sort((a, b) => a - b);
+    
+    for (let i = ageGroups.length - 1; i >= 0; i--) {
+      if (age >= ageGroups[i]) {
+        return ageValueMultipliers[ageGroups[i]];
+      }
+    }
+    
+    return ageValueMultipliers[0];
+  };
+  
+  // Calculate sophisticated life value
+  const calculateLifeValue = (lifeSaved) => {
+    const age = parseInt(lifeSaved.age);
+    const remainingYears = getRemainingLifeExpectancy(age, lifeSaved.gender);
+    const ageMultiplier = getAgeValueMultiplier(age);
+    const qolyFactor = qolyFactors[lifeSaved.incidentType][lifeSaved.incidentSeverity];
+    const preExistingModifier = preExistingModifiers[lifeSaved.preExistingConditions];
+    
+    // Base calculation: VSL * (remaining years / 77 average lifespan)
+    const yearsFactor = remainingYears / 77;
+    
+    // Apply all modifiers
+    const adjustedValue = VSL_BASE * yearsFactor * ageMultiplier * qolyFactor * preExistingModifier;
+    
+    return {
+      baseValue: VSL_BASE,
+      remainingYears: remainingYears.toFixed(1),
+      yearsFactor: yearsFactor.toFixed(3),
+      ageMultiplier: ageMultiplier.toFixed(3),
+      qolyFactor: qolyFactor.toFixed(3),
+      preExistingModifier: preExistingModifier.toFixed(3),
+      finalValue: Math.round(adjustedValue),
+      adjustedValue
+    };
+  };
+  
+  // NFIRS Property Value Calculation Tables (Based on ICC Building Valuation Data 2024)
+  const iccBuildingCosts = {
+    // Residential Occupancies (R)
+    residential: {
+      R1: 245.90,    // Hotels, motels
+      R2: 165.40,    // Apartments, dormitories  
+      R3: 140.33,    // Single-family, townhouses
+      R4: 135.20,    // Assisted living
+      manufactured: 85.75
+    },
+    // Business Occupancies (B)
+    commercial: {
+      B: 185.60,     // Office buildings, banks
+      M: 165.40,     // Mercantile, retail stores
+      warehouse: 95.30
+    },
+    // Industrial Occupancies (F)
+    industrial: {
+      F1: 155.20,    // Moderate hazard
+      F2: 125.70,    // Low hazard manufacturing
+      warehouse: 89.40
+    },
+    // Storage Occupancies (S)
+    storage: {
+      S1: 110.50,    // Moderate hazard storage
+      S2: 89.40      // Low hazard storage
+    },
+    // Assembly Occupancies (A)
+    assembly: {
+      A1: 220.80,    // Theaters, concert halls
+      A2: 195.60,    // Restaurants, bars
+      A3: 175.40,    // Churches, libraries
+      A4: 165.20,    // Arenas, skating rinks
+      A5: 125.30     // Bleachers, grandstands
+    },
+    // Educational Occupancies (E)
+    educational: {
+      E: 195.50      // Schools, day care
+    },
+    // Institutional Occupancies (I)
+    institutional: {
+      I1: 285.40,    // Hospitals
+      I2: 245.70,    // Nursing homes
+      I3: 220.50,    // Jails, prisons
+      I4: 195.30     // Adult day care
+    },
+    // Utility and Miscellaneous (U)
+    utility: {
+      U: 75.50,      // Garages, sheds
+      barn: 68.90
+    }
+  };
+  
+  // IBC Construction Type Multipliers (Based on fire resistance and materials)
+  const constructionMultipliers = {
+    // Type I - Fire Resistive
+    IA: 1.50,      // 3-4 hour fire rating
+    IB: 1.45,      // 2-3 hour fire rating
+    
+    // Type II - Non-Combustible  
+    IIA: 1.35,     // 1-2 hour fire rating
+    IIB: 1.30,     // No fire rating requirement
+    
+    // Type III - Ordinary
+    IIIA: 1.25,    // 1 hour fire rating
+    IIIB: 1.20,    // No fire rating requirement
+    
+    // Type IV - Heavy Timber
+    IV: 1.15,      // Heavy timber construction
+    HT: 1.15,      // Heavy timber (alternative designation)
+    
+    // Type V - Wood Frame
+    VA: 1.05,      // 1 hour fire rating
+    VB: 1.00       // No fire rating requirement (baseline)
+  };
+  
+  // Property condition multipliers
+  const conditionMultipliers = {
+    excellent: 1.20,   // Recently renovated, superior condition
+    good: 1.00,        // Well maintained, normal wear
+    fair: 0.85,        // Some deferred maintenance
+    poor: 0.65,        // Significant maintenance issues
+    deteriorated: 0.50 // Major structural/system problems
+  };
+  
+  // Age depreciation schedule (NFIRS standard)
+  const ageDepreciationFactors = {
+    0: 1.00,    // 0-2 years (new construction)
+    2: 0.98,    // 3-5 years
+    5: 0.95,    // 6-10 years  
+    10: 0.90,   // 11-15 years
+    15: 0.85,   // 16-20 years
+    20: 0.80,   // 21-25 years
+    25: 0.75,   // 26-30 years
+    30: 0.70,   // 31-35 years
+    35: 0.65,   // 36-40 years
+    40: 0.60,   // 41-45 years
+    45: 0.55,   // 46-50 years
+    50: 0.50,   // 50+ years
+    999: 0.45   // Very old structures
+  };
+  
+  // Fire protection system credits
+  const fireProtectionCredits = {
+    none: 1.00,
+    sprinkler_partial: 0.95,
+    sprinkler_full: 0.90,
+    sprinkler_plus_alarm: 0.85,
+    comprehensive: 0.80  // Sprinklers + alarms + suppression
+  };
+  
+  // Calculate NFIRS property value using ICC Building Valuation Data
+  const calculateNFIRSValue = (propertyData) => {
+    const currentYear = new Date().getFullYear();
+    const age = currentYear - parseInt(propertyData.yearBuilt);
+    
+    // Step 1: Get base cost per square foot from ICC BVD
+    let baseCost = 100; // Default fallback
+    
+    if (propertyData.propertyType === 'residential') {
+      baseCost = iccBuildingCosts.residential[propertyData.occupancyType] || iccBuildingCosts.residential.R3;
+    } else if (propertyData.propertyType === 'commercial') {
+      baseCost = iccBuildingCosts.commercial[propertyData.occupancyType] || iccBuildingCosts.commercial.B;
+    } else if (propertyData.propertyType === 'industrial') {
+      baseCost = iccBuildingCosts.industrial[propertyData.occupancyType] || iccBuildingCosts.industrial.F2;
+    } else if (propertyData.propertyType === 'assembly') {
+      baseCost = iccBuildingCosts.assembly[propertyData.occupancyType] || iccBuildingCosts.assembly.A3;
+    } else if (propertyData.propertyType === 'educational') {
+      baseCost = iccBuildingCosts.educational.E;
+    } else if (propertyData.propertyType === 'institutional') {
+      baseCost = iccBuildingCosts.institutional[propertyData.occupancyType] || iccBuildingCosts.institutional.I2;
+    } else if (propertyData.propertyType === 'storage') {
+      baseCost = iccBuildingCosts.storage[propertyData.occupancyType] || iccBuildingCosts.storage.S2;
+    } else if (propertyData.propertyType === 'utility') {
+      baseCost = iccBuildingCosts.utility.U;
+    }
+    
+    // Step 2: Apply IBC construction type multiplier
+    const constructionMultiplier = constructionMultipliers[propertyData.constructionType] || 1.0;
+    
+    // Step 3: Apply condition multiplier
+    const conditionMultiplier = conditionMultipliers[propertyData.condition] || 1.0;
+    
+    // Step 4: Apply age depreciation
+    let depreciationFactor = 1.0;
+    for (const [ageThreshold, factor] of Object.entries(ageDepreciationFactors).sort((a, b) => a[0] - b[0])) {
+      if (age <= parseInt(ageThreshold)) {
+        depreciationFactor = factor;
+        break;
+      }
+    }
+    
+    // Step 5: Apply fire protection system credits
+    const fireProtectionCredit = fireProtectionCredits[propertyData.fireProtection] || 1.0;
+    
+    // Step 6: Apply local market multiplier
+    const localMultiplier = parseFloat(propertyData.localMultiplier) || 1.0;
+    
+    // Calculate base replacement cost
+    const baseValue = parseInt(propertyData.squareFootage) * baseCost;
+    
+    // Apply all multipliers and adjustments
+    const finalValue = Math.round(
+      baseValue * 
+      constructionMultiplier * 
+      conditionMultiplier * 
+      depreciationFactor * 
+      fireProtectionCredit * 
+      localMultiplier
+    );
+    
+    return finalValue;
+  };
+  
+  // Add a life saved entry
+  const addLifeSaved = () => {
+    if (!lifeForm.age || !lifeForm.incidentId) {
+      alert('Please fill in required fields: Age and Incident ID');
+      return;
+    }
+    
+    const lifeValue = calculateLifeValue(lifeForm);
+    
+    setLivesSaved([
+      ...livesSaved,
+      {
+        ...lifeForm,
+        ...lifeValue,
+        id: Date.now()
+      }
+    ]);
+    
+    // Reset form
+    setLifeForm({
+      age: '',
+      gender: 'male',
+      incidentType: 'cardiac_arrest',
+      incidentSeverity: 'moderate',
+      preExistingConditions: 'none',
+      responseTime: '',
+      treatmentLocation: 'field',
+      incidentId: ''
+    });
+    setShowLifeForm(false);
+  };
+  
+  // Remove a life saved entry
+  const removeLifeSaved = (index) => {
+    const newLivesSaved = [...livesSaved];
+    newLivesSaved.splice(index, 1);
+    setLivesSaved(newLivesSaved);
+  };
+  const addProperty = () => {
+    if (!propertyForm.address || !propertyForm.squareFootage || !propertyForm.yearBuilt) {
+      alert('Please fill in required fields: Address, Square Footage, and Year Built');
+      return;
+    }
+    
+    const propertyValue = calculateNFIRSValue(propertyForm);
+    
+    setProperties([
+      ...properties,
+      {
+        ...propertyForm,
+        value: propertyValue,
+        id: Date.now() // Simple ID for tracking
+      }
+    ]);
+    
+    // Reset form
+    setPropertyForm({
+      address: '',
+      incidentId: '',
+      propertyType: 'residential',
+      occupancyType: 'R3',
+      yearBuilt: '',
+      squareFootage: '',
+      stories: '1',
+      constructionType: 'VB',
+      exteriorWalls: 'wood_frame',
+      roofMaterial: 'asphalt_shingle',
+      condition: 'good',
+      fireProtection: 'none',
+      localMultiplier: '1.0'
+    });
+    setShowAddForm(false);
+  };
+  
+  // Remove a property
+  const removeProperty = (index) => {
+    const newProperties = [...properties];
+    newProperties.splice(index, 1);
+    setProperties(newProperties);
+  };
+  
+  // Handle bulk CSV upload with NFIRS data
+  const handleNFIRSUpload = () => {
+    // Mock NFIRS data for demonstration
+    const mockNFIRSProperties = [
+      {
+        address: '123 Main St, Sacramento, CA',
+        incidentId: 'NFIRS-001',
+        propertyType: 'residential',
+        occupancyType: 'R3',
+        yearBuilt: '1995',
+        squareFootage: '2400',
+        stories: '2',
+        constructionType: 'VB',
+        condition: 'good',
+        fireProtection: 'none',
+        localMultiplier: '1.1',
+        id: Date.now() + 1
+      },
+      {
+        address: '456 Oak Ave, Sacramento, CA',
+        incidentId: 'NFIRS-002',
+        propertyType: 'commercial',
+        occupancyType: 'B',
+        yearBuilt: '2005',
+        squareFootage: '5000',
+        stories: '3',
+        constructionType: 'IIA',
+        condition: 'excellent',
+        fireProtection: 'sprinkler_full',
+        localMultiplier: '1.2',
+        id: Date.now() + 2
+      },
+      {
+        address: '789 Pine Rd, Sacramento, CA',
+        incidentId: 'NFIRS-003',
+        propertyType: 'residential',
+        occupancyType: 'R3',
+        yearBuilt: '2010',
+        squareFootage: '1800',
+        stories: '2',
+        constructionType: 'VB',
+        condition: 'good',
+        fireProtection: 'sprinkler_partial',
+        localMultiplier: '1.0',
+        id: Date.now() + 3
+      }
+    ];
+    
+    const processedProperties = mockNFIRSProperties.map(prop => ({
+      ...prop,
+      value: calculateNFIRSValue(prop)
+    }));
+    
+    setProperties([...properties, ...processedProperties]);
+  };
+  
+  // Calculate PVS
+  const calculatePVS = () => {
+    if (livesSaved.length === 0 || !budget || properties.length === 0) return;
+    
+    // Calculate total lives saved value
+    const totalLivesSavedValue = livesSaved.reduce((sum, life) => sum + life.finalValue, 0);
+    
+    // Calculate total property value
+    const totalPropertyValue = properties.reduce((sum, property) => sum + property.value, 0);
+    
+    // Calculate total value
+    const totalValue = totalLivesSavedValue + totalPropertyValue;
+    
+    // Parse budget (remove non-numeric characters)
+    const parsedBudget = parseFloat(budget.replace(/[^0-9.]/g, ''));
+    
+    // Calculate PVS
+    const pvsValue = (totalValue / parsedBudget) * parseFloat(efficiency);
+    
+    setPvsScore({
+      score: pvsValue.toFixed(1),
+      livesSavedValue: totalLivesSavedValue,
+      totalPropertyValue,
+      budget: parsedBudget,
+      efficiency,
+      livesSavedCount: livesSaved.length
+    });
+    
+    setStep(4);
+  };
+  
+  // Format currency
+  const formatCurrency = (value) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0
+    }).format(value);
+  };
+  
+  // Reset calculator
+  const resetCalculator = () => {
+    setStep(1);
+    setLivesSaved([]);
+    setProperties([]);
+    setBudget('');
+    setEfficiency('0.90');
+    setPvsScore(null);
+  };
+  
+  return (
+    <div style={{ maxWidth: '950px', margin: '0 auto', padding: '20px' }}>
+      <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+        <h1 style={{ fontSize: '28px', fontWeight: 'bold', marginBottom: '10px' }}>
+          Fire Department PVS Calculator - NFIRS Method
+        </h1>
+        <p style={{ color: '#666' }}>
+          Calculate property values using NFIRS standards with ICC Building Valuation Data
+        </p>
+      </div>
+      
+      {/* Step indicator */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px' }}>
+        {[1, 2, 3, 4].map((num) => (
+          <div key={num} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div style={{ 
+              width: '36px', 
+              height: '36px', 
+              borderRadius: '50%', 
+              backgroundColor: step >= num ? '#2563eb' : '#e5e7eb',
+              color: step >= num ? 'white' : '#6b7280',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: '8px',
+              fontWeight: 'bold'
+            }}>
+              {num}
+            </div>
+            <div style={{ fontSize: '14px', color: step >= num ? '#2563eb' : '#6b7280' }}>
+              {num === 1 ? 'Lives Saved' : 
+               num === 2 ? 'Properties (NFIRS)' : 
+               num === 3 ? 'Budget & Efficiency' : 'Results'}
+            </div>
+          </div>
+        ))}
+      </div>
+      
+      {/* Step 1: Lives Saved */}
+      {step === 1 && (
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '24px' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '20px' }}>Step 1: Lives Saved Analysis</h2>
+          
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+            <div>
+              <button
+                onClick={() => setShowLifeForm(!showLifeForm)}
+                style={{
+                  backgroundColor: 'white',
+                  border: '1px solid #d1d5db',
+                  padding: '8px 16px',
+                  borderRadius: '4px',
+                  marginRight: '8px'
+                }}
+              >
+                Add Life Saved
+              </button>
+              <button
+                style={{
+                  backgroundColor: '#f3f4f6',
+                  border: '1px solid #d1d5db',
+                  padding: '8px 16px',
+                  borderRadius: '4px'
+                }}
+              >
+                Upload Lives CSV Template
+              </button>
+            </div>
+          </div>
+          
+          {showLifeForm && (
+            <div style={{ 
+              border: '1px solid #e5e7eb', 
+              borderRadius: '8px', 
+              padding: '20px',
+              marginBottom: '20px',
+              backgroundColor: '#f9fafb'
+            }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '20px' }}>Add Life Saved - Detailed Analysis</h3>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Age *
+                  </label>
+                  <input
+                    type="number"
+                    value={lifeForm.age}
+                    onChange={(e) => setLifeForm({...lifeForm, age: e.target.value})}
+                    placeholder="e.g., 45"
+                    min="0"
+                    max="120"
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  />
+                </div>
+                
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Gender *
+                  </label>
+                  <select
+                    value={lifeForm.gender}
+                    onChange={(e) => setLifeForm({...lifeForm, gender: e.target.value})}
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  >
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Incident ID *
+                  </label>
+                  <input
+                    value={lifeForm.incidentId}
+                    onChange={(e) => setLifeForm({...lifeForm, incidentId: e.target.value})}
+                    placeholder="e.g., NFIRS-2024-001"
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  />
+                </div>
+              </div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Incident Type *
+                  </label>
+                  <select
+                    value={lifeForm.incidentType}
+                    onChange={(e) => setLifeForm({...lifeForm, incidentType: e.target.value})}
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  >
+                    <option value="cardiac_arrest">Cardiac Arrest</option>
+                    <option value="respiratory_emergency">Respiratory Emergency</option>
+                    <option value="trauma_blunt">Blunt Force Trauma</option>
+                    <option value="trauma_penetrating">Penetrating Trauma (GSW, Stab)</option>
+                    <option value="burns">Burns</option>
+                    <option value="overdose_poisoning">Overdose/Poisoning</option>
+                    <option value="stroke">Stroke</option>
+                    <option value="drowning">Drowning</option>
+                    <option value="electrocution">Electrocution</option>
+                    <option value="allergic_reaction">Severe Allergic Reaction</option>
+                    <option value="other_medical">Other Medical Emergency</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Incident Severity *
+                  </label>
+                  <select
+                    value={lifeForm.incidentSeverity}
+                    onChange={(e) => setLifeForm({...lifeForm, incidentSeverity: e.target.value})}
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  >
+                    <option value="mild">Mild (Full recovery expected)</option>
+                    <option value="moderate">Moderate (Some long-term impact)</option>
+                    <option value="severe">Severe (Significant complications)</option>
+                    <option value="critical">Critical (Life-altering injuries)</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Pre-existing Conditions
+                  </label>
+                  <select
+                    value={lifeForm.preExistingConditions}
+                    onChange={(e) => setLifeForm({...lifeForm, preExistingConditions: e.target.value})}
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  >
+                    <option value="none">None</option>
+                    <option value="diabetes">Diabetes</option>
+                    <option value="heart_disease">Heart Disease</option>
+                    <option value="copd">COPD</option>
+                    <option value="cancer_remission">Cancer (Remission)</option>
+                    <option value="cancer_active">Cancer (Active)</option>
+                    <option value="kidney_disease">Kidney Disease</option>
+                    <option value="obesity">Obesity</option>
+                    <option value="hypertension">Hypertension</option>
+                    <option value="multiple_conditions">Multiple Conditions</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Response Time (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    value={lifeForm.responseTime}
+                    onChange={(e) => setLifeForm({...lifeForm, responseTime: e.target.value})}
+                    placeholder="e.g., 8"
+                    min="0"
+                    max="60"
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  />
+                </div>
+                
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Treatment Location
+                  </label>
+                  <select
+                    value={lifeForm.treatmentLocation}
+                    onChange={(e) => setLifeForm({...lifeForm, treatmentLocation: e.target.value})}
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  >
+                    <option value="field">Field/Scene</option>
+                    <option value="ambulance">Ambulance/Transport</option>
+                    <option value="hospital">Hospital/ER</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ backgroundColor: '#fef3c7', padding: '8px 12px', borderRadius: '4px', fontSize: '14px' }}>
+                  <strong>Calculated Life Value: </strong>
+                  {lifeForm.age && lifeForm.gender ? 
+                    formatCurrency(calculateLifeValue(lifeForm).finalValue) : 
+                    'Fill required fields to see estimate'
+                  }
+                  {lifeForm.age && lifeForm.gender && (
+                    <div style={{ fontSize: '12px', marginTop: '4px' }}>
+                      Remaining Life Expectancy: {calculateLifeValue(lifeForm).remainingYears} years
+                    </div>
+                  )}
+                </div>
+                
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => setShowLifeForm(false)}
+                    style={{
+                      backgroundColor: 'white',
+                      border: '1px solid #d1d5db',
+                      padding: '8px 16px',
+                      borderRadius: '4px'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={addLifeSaved}
+                    disabled={!lifeForm.age || !lifeForm.incidentId}
+                    style={{
+                      backgroundColor: (lifeForm.age && lifeForm.incidentId) ? '#2563eb' : '#e5e7eb',
+                      color: (lifeForm.age && lifeForm.incidentId) ? 'white' : '#6b7280',
+                      padding: '8px 16px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      cursor: (lifeForm.age && lifeForm.incidentId) ? 'pointer' : 'not-allowed'
+                    }}
+                  >
+                    Add Life Saved
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Lives saved list */}
+          {livesSaved.length > 0 ? (
+            <div style={{ marginBottom: '20px', overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f3f4f6' }}>
+                    <th style={{ padding: '12px 8px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>Incident ID</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>Age/Gender</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>Incident Type</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>Severity</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>Life Exp.</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>Calculated Value</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', width: '60px', fontSize: '14px' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {livesSaved.map((life, index) => (
+                    <tr key={life.id}>
+                      <td style={{ padding: '12px 8px', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>
+                        {life.incidentId}
+                      </td>
+                      <td style={{ padding: '12px 8px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>
+                        {life.age} / {life.gender === 'male' ? 'M' : 'F'}
+                      </td>
+                      <td style={{ padding: '12px 8px', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>
+                        {life.incidentType.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                      </td>
+                      <td style={{ padding: '12px 8px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>
+                        <span style={{ 
+                          padding: '2px 8px', 
+                          borderRadius: '12px', 
+                          fontSize: '12px', 
+                          backgroundColor: life.incidentSeverity === 'mild' ? '#dcfce7' : 
+                                          life.incidentSeverity === 'moderate' ? '#fef3c7' : 
+                                          life.incidentSeverity === 'severe' ? '#fed7c3' : '#fecaca',
+                          color: life.incidentSeverity === 'mild' ? '#166534' : 
+                                life.incidentSeverity === 'moderate' ? '#854d0e' : 
+                                life.incidentSeverity === 'severe' ? '#9a3412' : '#dc2626'
+                        }}>
+                          {life.incidentSeverity}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 8px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>
+                        {life.remainingYears} yrs
+                      </td>
+                      <td style={{ padding: '12px 8px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontSize: '14px', fontWeight: 'bold' }}>
+                        {formatCurrency(life.finalValue)}
+                      </td>
+                      <td style={{ padding: '12px 8px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>
+                        <button
+                          onClick={() => removeLifeSaved(index)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444' }}
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ backgroundColor: '#f3f4f6' }}>
+                    <td colSpan={5} style={{ padding: '12px 8px', fontWeight: 'bold' }}>Total Lives Saved Value ({livesSaved.length} lives)</td>
+                    <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 'bold', fontSize: '16px', color: '#2563eb' }}>
+                      {formatCurrency(livesSaved.reduce((sum, life) => sum + life.finalValue, 0))}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ) : (
+            <div style={{ 
+              textAlign: 'center', 
+              padding: '40px', 
+              backgroundColor: '#f9fafb', 
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+              marginBottom: '20px'
+            }}>
+              <p style={{ color: '#6b7280', marginBottom: '8px' }}>No lives saved entries yet.</p>
+              <p style={{ color: '#6b7280', fontSize: '14px' }}>
+                Add individual life saved records with detailed incident information for accurate valuation
+              </p>
+            </div>
+          )}
+          
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => livesSaved.length > 0 && setStep(2)}
+              disabled={livesSaved.length === 0}
+              style={{
+                backgroundColor: livesSaved.length > 0 ? '#2563eb' : '#e5e7eb',
+                color: livesSaved.length > 0 ? 'white' : '#6b7280',
+                padding: '10px 20px',
+                borderRadius: '4px',
+                fontWeight: 'bold',
+                cursor: livesSaved.length > 0 ? 'pointer' : 'not-allowed',
+                border: 'none'
+              }}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {/* Step 2: Properties with NFIRS Data */}
+      {step === 2 && (
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '24px' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '20px' }}>Step 2: Properties Saved (NFIRS Method)</h2>
+          
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+            <div>
+              <button
+                onClick={() => setShowAddForm(!showAddForm)}
+                style={{
+                  backgroundColor: 'white',
+                  border: '1px solid #d1d5db',
+                  padding: '8px 16px',
+                  borderRadius: '4px',
+                  marginRight: '8px'
+                }}
+              >
+                Add Property
+              </button>
+              <button
+                onClick={handleNFIRSUpload}
+                style={{
+                  backgroundColor: 'white',
+                  border: '1px solid #d1d5db',
+                  padding: '8px 16px',
+                  borderRadius: '4px',
+                  marginRight: '8px'
+                }}
+              >
+                Upload NFIRS CSV (Demo)
+              </button>
+              <button
+                style={{
+                  backgroundColor: '#f3f4f6',
+                  border: '1px solid #d1d5db',
+                  padding: '8px 16px',
+                  borderRadius: '4px'
+                }}
+              >
+                Download NFIRS Template
+              </button>
+            </div>
+          </div>
+          
+          {showAddForm && (
+            <div style={{ 
+              border: '1px solid #e5e7eb', 
+              borderRadius: '8px', 
+              padding: '20px',
+              marginBottom: '20px',
+              backgroundColor: '#f9fafb'
+            }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '20px' }}>Add Property - NFIRS Data Entry</h3>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Property Address *
+                  </label>
+                  <input
+                    value={propertyForm.address}
+                    onChange={(e) => setPropertyForm({...propertyForm, address: e.target.value})}
+                    placeholder="Enter full address"
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  />
+                </div>
+                
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    NFIRS Incident ID
+                  </label>
+                  <input
+                    value={propertyForm.incidentId}
+                    onChange={(e) => setPropertyForm({...propertyForm, incidentId: e.target.value})}
+                    placeholder="Enter NFIRS incident ID"
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  />
+                </div>
+              </div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Property Type *
+                  </label>
+                  <select
+                    value={propertyForm.propertyType}
+                    onChange={(e) => setPropertyForm({...propertyForm, propertyType: e.target.value, occupancyType: e.target.value === 'residential' ? 'R3' : 'B'})}
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  >
+                    <option value="residential">Residential</option>
+                    <option value="commercial">Commercial/Business</option>
+                    <option value="industrial">Industrial</option>
+                    <option value="assembly">Assembly</option>
+                    <option value="educational">Educational</option>
+                    <option value="institutional">Institutional</option>
+                    <option value="storage">Storage</option>
+                    <option value="utility">Utility</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    IBC Occupancy Classification *
+                  </label>
+                  <select
+                    value={propertyForm.occupancyType}
+                    onChange={(e) => setPropertyForm({...propertyForm, occupancyType: e.target.value})}
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  >
+                    {propertyForm.propertyType === 'residential' && (
+                      <>
+                        <option value="R1">R-1 (Hotels, Motels)</option>
+                        <option value="R2">R-2 (Apartments, Dorms)</option>
+                        <option value="R3">R-3 (Single Family)</option>
+                        <option value="R4">R-4 (Assisted Living)</option>
+                        <option value="manufactured">Manufactured Home</option>
+                      </>
+                    )}
+                    {propertyForm.propertyType === 'commercial' && (
+                      <>
+                        <option value="B">B (Business/Office)</option>
+                        <option value="M">M (Mercantile/Retail)</option>
+                        <option value="warehouse">Warehouse</option>
+                      </>
+                    )}
+                    {propertyForm.propertyType === 'industrial' && (
+                      <>
+                        <option value="F1">F-1 (Moderate Hazard)</option>
+                        <option value="F2">F-2 (Low Hazard)</option>
+                        <option value="warehouse">Industrial Warehouse</option>
+                      </>
+                    )}
+                    {propertyForm.propertyType === 'assembly' && (
+                      <>
+                        <option value="A1">A-1 (Theater, Concert)</option>
+                        <option value="A2">A-2 (Restaurant, Bar)</option>
+                        <option value="A3">A-3 (Church, Library)</option>
+                        <option value="A4">A-4 (Arena, Stadium)</option>
+                        <option value="A5">A-5 (Bleachers)</option>
+                      </>
+                    )}
+                    {propertyForm.propertyType === 'educational' && (
+                      <option value="E">E (Schools, Day Care)</option>
+                    )}
+                    {propertyForm.propertyType === 'institutional' && (
+                      <>
+                        <option value="I1">I-1 (Hospitals)</option>
+                        <option value="I2">I-2 (Nursing Homes)</option>
+                        <option value="I3">I-3 (Jails, Prisons)</option>
+                        <option value="I4">I-4 (Adult Day Care)</option>
+                      </>
+                    )}
+                    {propertyForm.propertyType === 'storage' && (
+                      <>
+                        <option value="S1">S-1 (Moderate Hazard)</option>
+                        <option value="S2">S-2 (Low Hazard)</option>
+                      </>
+                    )}
+                    {propertyForm.propertyType === 'utility' && (
+                      <>
+                        <option value="U">U (Utility, Garage)</option>
+                        <option value="barn">Barn/Agricultural</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+                
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Year Built *
+                  </label>
+                  <input
+                    type="number"
+                    value={propertyForm.yearBuilt}
+                    onChange={(e) => setPropertyForm({...propertyForm, yearBuilt: e.target.value})}
+                    placeholder="e.g., 1995"
+                    min="1800"
+                    max="2025"
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  />
+                </div>
+              </div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Square Footage *
+                  </label>
+                  <input
+                    type="number"
+                    value={propertyForm.squareFootage}
+                    onChange={(e) => setPropertyForm({...propertyForm, squareFootage: e.target.value})}
+                    placeholder="e.g., 2400"
+                    min="0"
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  />
+                </div>
+                
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Number of Stories
+                  </label>
+                  <select
+                    value={propertyForm.stories}
+                    onChange={(e) => setPropertyForm({...propertyForm, stories: e.target.value})}
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  >
+                    <option value="1">1 Story</option>
+                    <option value="2">2 Stories</option>
+                    <option value="3">3 Stories</option>
+                    <option value="4">4 Stories</option>
+                    <option value="5+">5+ Stories</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    IBC Construction Type
+                  </label>
+                  <select
+                    value={propertyForm.constructionType}
+                    onChange={(e) => setPropertyForm({...propertyForm, constructionType: e.target.value})}
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  >
+                    <optgroup label="Type I - Fire Resistive">
+                      <option value="IA">Type I-A (3-4 hr rating)</option>
+                      <option value="IB">Type I-B (2-3 hr rating)</option>
+                    </optgroup>
+                    <optgroup label="Type II - Non-Combustible">
+                      <option value="IIA">Type II-A (1-2 hr rating)</option>
+                      <option value="IIB">Type II-B (No rating)</option>
+                    </optgroup>
+                    <optgroup label="Type III - Ordinary">
+                      <option value="IIIA">Type III-A (1 hr rating)</option>
+                      <option value="IIIB">Type III-B (No rating)</option>
+                    </optgroup>
+                    <optgroup label="Type IV - Heavy Timber">
+                      <option value="IV">Type IV (Heavy Timber)</option>
+                      <option value="HT">Type HT (Heavy Timber)</option>
+                    </optgroup>
+                    <optgroup label="Type V - Wood Frame">
+                      <option value="VA">Type V-A (1 hr rating)</option>
+                      <option value="VB">Type V-B (No rating)</option>
+                    </optgroup>
+                  </select>
+                </div>
+              </div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Overall Condition
+                  </label>
+                  <select
+                    value={propertyForm.condition}
+                    onChange={(e) => setPropertyForm({...propertyForm, condition: e.target.value})}
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  >
+                    <option value="excellent">Excellent (+20%)</option>
+                    <option value="good">Good (Baseline)</option>
+                    <option value="fair">Fair (-15%)</option>
+                    <option value="poor">Poor (-35%)</option>
+                    <option value="deteriorated">Deteriorated (-50%)</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Fire Protection Systems
+                  </label>
+                  <select
+                    value={propertyForm.fireProtection}
+                    onChange={(e) => setPropertyForm({...propertyForm, fireProtection: e.target.value})}
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  >
+                    <option value="none">None</option>
+                    <option value="sprinkler_partial">Partial Sprinklers (-5%)</option>
+                    <option value="sprinkler_full">Full Sprinklers (-10%)</option>
+                    <option value="sprinkler_plus_alarm">Sprinklers + Alarm (-15%)</option>
+                    <option value="comprehensive">Comprehensive (-20%)</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Local Market Multiplier
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={propertyForm.localMultiplier}
+                    onChange={(e) => setPropertyForm({...propertyForm, localMultiplier: e.target.value})}
+                    placeholder="1.0"
+                    min="0.1"
+                    max="3.0"
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px', 
+                      border: '1px solid #d1d5db', 
+                      borderRadius: '4px'
+                    }}
+                  />
+                  <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
+                    Regional cost adjustment (0.5-2.0 typical)
+                  </p>
+                </div>
+              </div>
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ backgroundColor: '#fef3c7', padding: '8px 12px', borderRadius: '4px', fontSize: '14px' }}>
+                  <strong>NFIRS Estimated Value: </strong>
+                  {propertyForm.squareFootage && propertyForm.yearBuilt ? 
+                    formatCurrency(calculateNFIRSValue(propertyForm)) : 
+                    'Fill required fields to see estimate'
+                  }
+                </div>
+                
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => setShowAddForm(false)}
+                    style={{
+                      backgroundColor: 'white',
+                      border: '1px solid #d1d5db',
+                      padding: '8px 16px',
+                      borderRadius: '4px'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={addProperty}
+                    disabled={!propertyForm.address || !propertyForm.squareFootage || !propertyForm.yearBuilt}
+                    style={{
+                      backgroundColor: (propertyForm.address && propertyForm.squareFootage && propertyForm.yearBuilt) ? '#2563eb' : '#e5e7eb',
+                      color: (propertyForm.address && propertyForm.squareFootage && propertyForm.yearBuilt) ? 'white' : '#6b7280',
+                      padding: '8px 16px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      cursor: (propertyForm.address && propertyForm.squareFootage && propertyForm.yearBuilt) ? 'pointer' : 'not-allowed'
+                    }}
+                  >
+                    Add Property
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Property list */}
+          {properties.length > 0 ? (
+            <div style={{ marginBottom: '20px', overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f3f4f6' }}>
+                    <th style={{ padding: '12px 8px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>Address</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>Occupancy</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>Sq Ft</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>Construction</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>NFIRS Value</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', width: '60px', fontSize: '14px' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {properties.map((property, index) => (
+                    <tr key={property.id}>
+                      <td style={{ padding: '12px 8px', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>
+                        {property.address}
+                        {property.incidentId && <div style={{ fontSize: '12px', color: '#6b7280' }}>ID: {property.incidentId}</div>}
+                      </td>
+                      <td style={{ padding: '12px 8px', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>
+                        {property.occupancyType} ({property.propertyType})
+                      </td>
+                      <td style={{ padding: '12px 8px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>
+                        {parseInt(property.squareFootage).toLocaleString()}
+                      </td>
+                      <td style={{ padding: '12px 8px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', fontSize: '14px' }}>
+                        {property.constructionType} ({property.yearBuilt})
+                      </td>
+                      <td style={{ padding: '12px 8px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontSize: '14px', fontWeight: 'bold' }}>
+                        {formatCurrency(property.value)}
+                      </td>
+                      <td style={{ padding: '12px 8px', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>
+                        <button
+                          onClick={() => removeProperty(index)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444' }}
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ backgroundColor: '#f3f4f6' }}>
+                    <td colSpan={4} style={{ padding: '12px 8px', fontWeight: 'bold' }}>Total NFIRS Value</td>
+                    <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 'bold', fontSize: '16px', color: '#2563eb' }}>
+                      {formatCurrency(properties.reduce((sum, property) => sum + property.value, 0))}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ) : (
+            <div style={{ 
+              textAlign: 'center', 
+              padding: '40px', 
+              backgroundColor: '#f9fafb', 
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+              marginBottom: '20px'
+            }}>
+              <p style={{ color: '#6b7280', marginBottom: '8px' }}>No properties added yet.</p>
+              <p style={{ color: '#6b7280', fontSize: '14px' }}>
+                Add properties using NFIRS methodology or upload a CSV with property data
+              </p>
+            </div>
+          )}
+          
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <button
+              onClick={() => setStep(1)}
+              style={{
+                backgroundColor: 'white',
+                border: '1px solid #d1d5db',
+                padding: '10px 20px',
+                borderRadius: '4px'
+              }}
+            >
+              Back
+            </button>
+            <button
+              onClick={() => properties.length > 0 && setStep(3)}
+              disabled={properties.length === 0}
+              style={{
+                backgroundColor: properties.length > 0 ? '#2563eb' : '#e5e7eb',
+                color: properties.length > 0 ? 'white' : '#6b7280',
+                padding: '10px 20px',
+                borderRadius: '4px',
+                border: 'none',
+                cursor: properties.length > 0 ? 'pointer' : 'not-allowed'
+              }}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {/* Step 3: Budget & Efficiency */}
+      {step === 3 && (
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '24px' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '20px' }}>Step 3: Budget & Efficiency</h2>
+          
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px' }}>
+              Annual Operating Budget
+            </label>
+            <input
+              type="text"
+              value={budget}
+              onChange={(e) => setBudget(e.target.value)}
+              placeholder="$173,100,000"
+              style={{ 
+                width: '100%', 
+                padding: '10px', 
+                border: '1px solid #d1d5db', 
+                borderRadius: '4px',
+                fontSize: '16px'
+              }}
+            />
+          </div>
+          
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px' }}>
+              Efficiency Multiplier
+            </label>
+            <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '8px' }}>
+              Adjust based on response time, staffing efficiency, and system readiness
+            </p>
+            <select
+              value={efficiency}
+              onChange={(e) => setEfficiency(e.target.value)}
+              style={{ 
+                width: '100%', 
+                padding: '10px', 
+                border: '1px solid #d1d5db', 
+                borderRadius: '4px',
+                fontSize: '16px'
+              }}
+            >
+              <option value="0.85">0.85 - Below Average Efficiency</option>
+              <option value="0.90">0.90 - Average Efficiency</option>
+              <option value="0.95">0.95 - High Efficiency</option>
+            </select>
+          </div>
+          
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <button
+              onClick={() => setStep(2)}
+              style={{
+                backgroundColor: 'white',
+                border: '1px solid #d1d5db',
+                padding: '10px 20px',
+                borderRadius: '4px'
+              }}
+            >
+              Back
+            </button>
+            <button
+              onClick={calculatePVS}
+              disabled={!budget}
+              style={{
+                backgroundColor: budget ? '#2563eb' : '#e5e7eb',
+                color: budget ? 'white' : '#6b7280',
+                padding: '10px 20px',
+                borderRadius: '4px',
+                border: 'none',
+                cursor: budget ? 'pointer' : 'not-allowed'
+              }}
+            >
+              Calculate PVS
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {/* Step 4: Results */}
+      {step === 4 && pvsScore && (
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '24px' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '20px' }}>Results</h2>
+          
+          <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+            <div style={{ fontSize: '48px', fontWeight: 'bold', color: '#2563eb', marginBottom: '10px' }}>
+              PVS = {pvsScore.score}
+            </div>
+            <p style={{ fontSize: '18px' }}>
+              For every $1 spent, your department generates ${pvsScore.score} in societal value.
+            </p>
+          </div>
+          
+          <div style={{ 
+            backgroundColor: '#f9fafb', 
+            border: '1px solid #e5e7eb',
+            borderRadius: '8px',
+            padding: '20px',
+            marginBottom: '30px'
+          }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '16px' }}>Formula Breakdown (NFIRS Method)</h3>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <span>{livesSaved.length} Lives Saved (Detailed Analysis):</span>
+              <span style={{ fontWeight: 'bold' }}>{formatCurrency(pvsScore.livesSavedValue)}</span>
+            </div>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <span>Property Value Preserved (NFIRS/ICC Calculation):</span>
+              <span style={{ fontWeight: 'bold' }}>{formatCurrency(pvsScore.totalPropertyValue)}</span>
+            </div>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <span>Annual Operating Cost:</span>
+              <span style={{ fontWeight: 'bold' }}>{formatCurrency(pvsScore.budget)}</span>
+            </div>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <span>Efficiency Multiplier:</span>
+              <span style={{ fontWeight: 'bold' }}>{pvsScore.efficiency}</span>
+            </div>
+            
+            <div style={{ 
+              borderTop: '1px solid #e5e7eb', 
+              paddingTop: '10px',
+              marginTop: '10px'
+            }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>
+                Formula: ((Lives Saved Value + Property Value) / Budget) × Efficiency
+              </div>
+              <div style={{ fontSize: '14px', color: '#6b7280' }}>
+                Property values calculated using NFIRS-compliant methodology with ICC Building Valuation Data (2024), 
+                IBC construction type classifications, age depreciation schedules, condition factors, fire protection credits, 
+                and local market adjustments per federal fire service reporting standards.
+                <br /><br />
+                <strong>Lives Saved Valuation:</strong> Advanced methodology considering age, gender, remaining life expectancy, 
+                incident type and severity, pre-existing conditions, and quality-adjusted life years (QALY) factors for 
+                accurate societal value assessment.
+              </div>
+            </div>
+          </div>
+          
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '16px' }}>
+            <button
+              style={{
+                backgroundColor: 'white',
+                border: '1px solid #d1d5db',
+                padding: '10px 20px',
+                borderRadius: '4px',
+                display: 'flex',
+                alignItems: 'center'
+              }}
+            >
+              <span style={{ marginRight: '8px' }}>↓</span>
+              Download NFIRS Report (PDF)
+            </button>
+            <button
+              onClick={resetCalculator}
+              style={{
+                backgroundColor: '#2563eb',
+                color: 'white',
+                padding: '10px 20px',
+                borderRadius: '4px',
+                border: 'none',
+                display: 'flex',
+                alignItems: 'center'
+              }}
+            >
+              <span style={{ marginRight: '8px' }}>↻</span>
+              Start Over
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default PVSCalculator;
